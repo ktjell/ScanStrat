@@ -1,0 +1,17 @@
+cache:
+  cache_dir: data/cache
+  max_age_hours: 24
+
+data:
+  default_period_years: 5
+  yfinance_timeout: 30
+  batch_size: 50
+
+ranking:
+  weights:
+    momentum_12m:   0.25
+    momentum_6m:    0.20
+    momentum_3m:    0.15
+    dist_52w_high:  0.15
+    rsi_14:         0.10
+    volatility_30d: 0.15

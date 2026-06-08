@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+macOS launchd job: kører scorer.py kl. 8, 12, 18 og 22 på hverdage.
+
+INSTALLATION (Terminal på Mac):
+  1. Kopier ScanStrat-mappen til Mac (fx via git pull eller rsync fra Windows)
+  2. Tilpas SCANSTRAT_PATH nedenfor til den rigtige sti på din Mac
+  3. Kopier filen til ~/Library/LaunchAgents/:
+       cp live/com.scanstrat.scorer.plist ~/Library/LaunchAgents/
+  4. Load job'et:
+       launchctl load ~/Library/LaunchAgents/com.scanstrat.scorer.plist
+  5. Test at det virker med det samme:
+       launchctl start com.scanstrat.scorer
+
+Output-logs findes i:
+  ~/Library/Logs/scanstrat_scorer.log
+  ~/Library/Logs/scanstrat_scorer_error.log
+-->
+<plist version="1.0">
+<dict>
+
+    <key>Label</key>
+    <string>com.scanstrat.scorer</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <!-- Tilpas stien til uv på din Mac (find den med: which uv) -->
+        <string>/Users/DIT_BRUGERNAVN/.local/bin/uv</string>
+        <string>run</string>
+        <string>python</string>
+        <!-- Tilpas til din Mac-sti -->
+        <string>/Users/DIT_BRUGERNAVN/ScanStrat/live/scorer.py</string>
+    </array>
+
+    <!-- Arbejdsmappe — skal matche ovenstående sti -->
+    <key>WorkingDirectory</key>
+    <string>/Users/DIT_BRUGERNAVN/ScanStrat</string>
+
+    <!-- Kør kl. 8, 12, 18 og 22 (kun hverdage håndteres af scorer.py selv) -->
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict>
+            <key>Hour</key><integer>8</integer>
+            <key>Minute</key><integer>0</integer>
+        </dict>
+        <dict>
+            <key>Hour</key><integer>12</integer>
+            <key>Minute</key><integer>0</integer>
+        </dict>
+        <dict>
+            <key>Hour</key><integer>18</integer>
+            <key>Minute</key><integer>0</integer>
+        </dict>
+        <dict>
+            <key>Hour</key><integer>22</integer>
+            <key>Minute</key><integer>0</integer>
+        </dict>
+    </array>
+
+    <!-- Gem logs -->
+    <key>StandardOutPath</key>
+    <string>/Users/DIT_BRUGERNAVN/Library/Logs/scanstrat_scorer.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/DIT_BRUGERNAVN/Library/Logs/scanstrat_scorer_error.log</string>
+
+    <!-- Start ikke hvis Mac sover — kør næste planlagte tidspunkt i stedet -->
+    <key>RunAtLoad</key>
+    <false/>
+
+</dict>
+</plist>
