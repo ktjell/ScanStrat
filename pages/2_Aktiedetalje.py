@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import yfinance as yf
 from plotly.subplots import make_subplots
 
 from app_cache import get_service
@@ -52,6 +53,25 @@ df = load_ticker(ticker, lookback_years)
 if df.empty:
     st.error(f"Ingen data for **{ticker}**. Tjek at tickeren er korrekt.")
     st.stop()
+
+
+# Selskabsbeskrivelse
+@st.cache_data(ttl=86400, show_spinner=False)
+def load_company_info(t: str) -> dict:
+    try:
+        return yf.Ticker(t).info
+    except Exception:
+        return {}
+
+
+info = load_company_info(ticker)
+name = info.get("longName") or info.get("shortName", ticker)
+summary = info.get("longBusinessSummary")
+with st.expander(f"ℹ️ {name}", expanded=False):
+    if summary:
+        st.write(summary)
+    else:
+        st.write("Ingen beskrivelse tilgængelig.")
 
 close = df["close"]
 sma50 = close.rolling(50).mean()
