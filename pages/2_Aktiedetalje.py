@@ -154,7 +154,9 @@ ml_rank: int | None = None
 try:
     if _RANKING_FILE.exists():
         ranking = json.loads(_RANKING_FILE.read_text(encoding="utf-8"))
-        entry = next((s for s in ranking.get("top_stocks", []) if s["ticker"] == ticker), None)
+        entry = next(
+            (s for s in ranking.get("top_stocks", []) if s["ticker"] == ticker), None
+        )
         if entry:
             ml_score = entry["ml_score"]
             ml_rank = entry["rank"]
@@ -169,7 +171,9 @@ latest_rsi = float(rsi.iloc[-1]) if not np.isnan(rsi.iloc[-1]) else None
 
 # RSI-trend (stigende eller faldende seneste 5 dage)
 rsi_clean = rsi.dropna()
-rsi_trend = float(rsi_clean.iloc[-1] - rsi_clean.iloc[-6]) if len(rsi_clean) >= 6 else 0.0
+rsi_trend = (
+    float(rsi_clean.iloc[-1] - rsi_clean.iloc[-6]) if len(rsi_clean) >= 6 else 0.0
+)
 
 # ---------------------------------------------------------------
 # Pointsystem: hver signal giver +1 (bullish), -1 (bearish), 0 (neutral)
@@ -179,13 +183,27 @@ signals: list[tuple[str, int, str]] = []  # (navn, point, beskrivelse)
 # 1. ML-score
 if ml_score is not None:
     if ml_score >= 0.60:
-        signals.append(("ML Ranker", 2, f"Top-{ml_rank} · score {ml_score*100:.1f}% — stærkt bullish"))
+        signals.append(
+            (
+                "ML Ranker",
+                2,
+                f"Top-{ml_rank} · score {ml_score * 100:.1f}% — stærkt bullish",
+            )
+        )
     elif ml_score >= 0.52:
-        signals.append(("ML Ranker", 1, f"Top-{ml_rank} · score {ml_score*100:.1f}% — svagt bullish"))
+        signals.append(
+            (
+                "ML Ranker",
+                1,
+                f"Top-{ml_rank} · score {ml_score * 100:.1f}% — svagt bullish",
+            )
+        )
     elif ml_score >= 0.48:
-        signals.append(("ML Ranker", 0, f"Score {ml_score*100:.1f}% — neutral"))
+        signals.append(("ML Ranker", 0, f"Score {ml_score * 100:.1f}% — neutral"))
     else:
-        signals.append(("ML Ranker", -1, f"Score {ml_score*100:.1f}% — under gennemsnit"))
+        signals.append(
+            ("ML Ranker", -1, f"Score {ml_score * 100:.1f}% — under gennemsnit")
+        )
 else:
     signals.append(("ML Ranker", 0, "Ikke i top-30 (ingen score)"))
 
@@ -209,7 +227,9 @@ if latest_sma50 and latest_sma200:
 # 4. RSI
 if latest_rsi is not None:
     if latest_rsi < 30:
-        signals.append(("RSI 14", 1, f"RSI {latest_rsi:.0f} — oversolgt (potentielt bounce)"))
+        signals.append(
+            ("RSI 14", 1, f"RSI {latest_rsi:.0f} — oversolgt (potentielt bounce)")
+        )
     elif latest_rsi < 45:
         signals.append(("RSI 14", 0, f"RSI {latest_rsi:.0f} — svag zone"))
     elif latest_rsi <= 70:
@@ -233,13 +253,17 @@ if latest_sma200:
     elif pct200 > -5:
         signals.append(("Langsigtet trend", 0, f"{pct200:+.1f}% vs SMA200 — neutral"))
     else:
-        signals.append(("Langsigtet trend", -1, f"{pct200:+.1f}% under SMA200 — bearish"))
+        signals.append(
+            ("Langsigtet trend", -1, f"{pct200:+.1f}% under SMA200 — bearish")
+        )
 
 # ---------------------------------------------------------------
 # Samlet score
 # ---------------------------------------------------------------
 total = sum(p for _, p, _ in signals)
-max_score = sum(2 if n == "ML Ranker" else 1 for n, _, _ in signals)  # ML tæller dobbelt
+max_score = sum(
+    2 if n == "ML Ranker" else 1 for n, _, _ in signals
+)  # ML tæller dobbelt
 min_score = -max_score
 
 # Normaliser til -100..+100

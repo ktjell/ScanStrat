@@ -68,10 +68,19 @@ def load(key: str) -> "BacktestResult | None":  # noqa: F821
         return None
     try:
         metrics = json.loads((path / "metrics.json").read_text(encoding="utf-8"))
-        equity_df = pd.read_parquet(path / "equity_curve.parquet")
+        equity_df = pd.read_csv(
+            path / "equity_curve.csv", index_col=0, parse_dates=True
+        )
         equity_curve = equity_df["value"]
         equity_curve.index.name = "date"
-        holdings = pd.read_parquet(path / "holdings.parquet")
+        holdings = pd.read_csv(path / "holdings.csv", index_col=0, parse_dates=True)
+        # tickers-kolonne er gemt som streng — konverter tilbage til liste
+        if "tickers" in holdings.columns:
+            import ast
+
+            holdings["tickers"] = holdings["tickers"].apply(
+                lambda x: ast.literal_eval(x) if isinstance(x, str) else x
+            )
         logger.info("Backtest cache hit: %s", key)
         return BacktestResult(
             equity_curve=equity_curve, holdings=holdings, metrics=metrics
@@ -88,11 +97,12 @@ def save(key: str, result: "BacktestResult") -> None:  # noqa: F821
         (path / "metrics.json").write_text(
             json.dumps(result.metrics, indent=2), encoding="utf-8"
         )
-        pd.DataFrame({"value": result.equity_curve}).to_parquet(
-            path / "equity_curve.parquet"
-        )
-        # holdings.tickers er en list — parquet/pyarrow haandterer det
-        result.holdings.to_parquet(path / "holdings.parquet")
+        pd.DataFrame({"value": result.equity_curve}).to_csv(path / "equity_curve.csv")
+        # holdings.tickers er en list — konverter til streng for CSV
+        holdings_save = result.holdings.copy()
+        if "tickers" in holdings_save.columns:
+            holdings_save["tickers"] = holdings_save["tickers"].apply(str)
+        holdings_save.to_csv(path / "holdings.csv")
         logger.info("Backtest resultat gemt: %s", key)
     except Exception as exc:
         logger.warning("Kunne ikke gemme backtest resultat %s: %s", key, exc)

@@ -50,12 +50,115 @@ DATA_DIR.mkdir(exist_ok=True)
 
 RANKING_FILE = DATA_DIR / "latest_ranking.json"
 MODEL_FILE = DATA_DIR / "model.pkl"
+PAPER_FILE = DATA_DIR / "paper_trades.json"
 TOP_N_OUTPUT = 30  # gem top-30 i JSON (dashboard viser top-15)
 RETRAIN_DAYS = 28  # retrain model hver 28 dage
 
 
 # ------------------------------------------------------------------
-# Hjælpefunktioner
+# Paper trading helpers
+# ------------------------------------------------------------------
+
+
+def _load_paper_trades() -> dict:
+    """Hent paper trade tilstand fra disk."""
+    if not PAPER_FILE.exists():
+        return {"positions": {}, "closed_trades": [], "equity_history": []}
+    try:
+        return json.loads(PAPER_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {"positions": {}, "closed_trades": [], "equity_history": []}
+
+
+def _save_paper_trades(pt: dict) -> None:
+    PAPER_FILE.write_text(json.dumps(pt, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _get_current_prices(tickers: list[str]) -> dict[str, float]:
+    """Hent seneste close for tickers via yfinance."""
+    if not tickers:
+        return {}
+    try:
+        raw = yf.download(tickers, period="2d", auto_adjust=True, progress=False)
+        if raw.empty:
+            return {}
+        close = raw["Close"] if "Close" in raw.columns else raw
+        if isinstance(close, pd.Series):
+            close = close.to_frame(name=tickers[0])
+        prices = {}
+        for t in tickers:
+            if t in close.columns:
+                series = close[t].dropna()
+                if not series.empty:
+                    prices[t] = float(series.iloc[-1])
+        return prices
+    except Exception as e:
+        logger.warning("Kunne ikke hente paper trade priser: %s", e)
+        return {}
+
+
+def _update_paper_trades(new_top15: list[str]) -> None:
+    """
+    Opdater paper trade journal baseret på ny top-15 liste.
+    - Nye tickers: åbn position til dagskurs
+    - Udgåede tickers: luk position til dagskurs
+    - Log equity snapshot
+    """
+    pt = _load_paper_trades()
+    today_str = str(date.today())
+    positions = pt["positions"]
+
+    exiting = [t for t in positions if t not in new_top15]
+    entering = [t for t in new_top15 if t not in positions]
+
+    all_needed = list(set(new_top15) | set(exiting))
+    prices = _get_current_prices(all_needed)
+
+    # Luk udgående positioner
+    for ticker in exiting:
+        entry = positions[ticker]
+        exit_price = prices.get(ticker)
+        if exit_price and entry.get("entry_price"):
+            ret_pct = round((exit_price / entry["entry_price"] - 1) * 100, 2)
+        else:
+            ret_pct = None
+        pt["closed_trades"].append({
+            "ticker": ticker,
+            "entry_date": entry["entry_date"],
+            "entry_price": entry.get("entry_price"),
+            "exit_date": today_str,
+            "exit_price": exit_price,
+            "return_pct": ret_pct,
+        })
+        del positions[ticker]
+        logger.info("Paper SÆLG %s @ %.2f (%.1f%%)", ticker, exit_price or 0, ret_pct or 0)
+
+    # Åbn nye positioner
+    for ticker in entering:
+        entry_price = prices.get(ticker)
+        positions[ticker] = {"entry_date": today_str, "entry_price": entry_price}
+        logger.info("Paper KØB %s @ %.2f", ticker, entry_price or 0)
+
+    # Equity snapshot (gennemsnit af åbne positioners afkast)
+    returns = []
+    for ticker, pos in positions.items():
+        p = prices.get(ticker)
+        if p and pos.get("entry_price"):
+            returns.append((p / pos["entry_price"] - 1) * 100)
+    avg_ret = round(sum(returns) / len(returns), 2) if returns else 0.0
+
+    pt["equity_history"].append({
+        "date": today_str,
+        "open_positions": len(positions),
+        "avg_return_pct": avg_ret,
+    })
+    pt["positions"] = positions
+    _save_paper_trades(pt)
+    logger.info("Paper trades opdateret: %d åbne, %d lukkede", len(positions), len(pt["closed_trades"]))
+
+
+# ------------------------------------------------------------------
+# Model helpers
 # ------------------------------------------------------------------
 
 
@@ -203,6 +306,10 @@ def main() -> None:
             f"{r['ticker']} ({r['ml_score_pct']}%)" for r in output["top_stocks"][:3]
         ),
     )
+
+    # Opdater paper trades (køb/sælg baseret på ny top-15)
+    new_top15 = [r["ticker"] for r in output["top_stocks"][:15]]
+    _update_paper_trades(new_top15)
 
 
 if __name__ == "__main__":

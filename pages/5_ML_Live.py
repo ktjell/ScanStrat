@@ -18,8 +18,6 @@ import streamlit as st
 import yfinance as yf
 
 _ROOT = Path(__file__).parent.parent
-_RANKING_FILE = _ROOT / "live" / "data" / "latest_ranking.json"
-_PORTFOLIO_FILE = _ROOT / "live" / "data" / "portfolio.json"
 
 import sys
 
@@ -38,6 +36,21 @@ st.set_page_config(
 _ROOT = Path(__file__).parent.parent
 _RANKING_FILE = _ROOT / "live" / "data" / "latest_ranking.json"
 _PORTFOLIO_FILE = _ROOT / "live" / "data" / "portfolio.json"
+_PAPER_FILE = _ROOT / "live" / "data" / "paper_trades.json"
+
+# ------------------------------------------------------------------
+# Paper trade helpers
+# ------------------------------------------------------------------
+
+
+def _load_paper_trades() -> dict:
+    if not _PAPER_FILE.exists():
+        return {"positions": {}, "closed_trades": [], "equity_history": []}
+    try:
+        return json.loads(_PAPER_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {"positions": {}, "closed_trades": [], "equity_history": []}
+
 
 # ------------------------------------------------------------------
 # Portfolio helpers
@@ -54,7 +67,9 @@ def _load_portfolio() -> list[dict]:
         # Migrer gammelt format (liste af strings)
         if raw and isinstance(raw[0], str):
             today = str(date.today())
-            return [{"ticker": t.upper(), "buy_date": today, "buy_price": None} for t in raw]
+            return [
+                {"ticker": t.upper(), "buy_date": today, "buy_price": None} for t in raw
+            ]
         return raw
     except Exception:
         return []
@@ -63,7 +78,9 @@ def _load_portfolio() -> list[dict]:
 def _save_portfolio(positions: list[dict]) -> None:
     _PORTFOLIO_FILE.parent.mkdir(parents=True, exist_ok=True)
     _PORTFOLIO_FILE.write_text(
-        json.dumps(sorted(positions, key=lambda p: p["ticker"]), indent=2, ensure_ascii=False),
+        json.dumps(
+            sorted(positions, key=lambda p: p["ticker"]), indent=2, ensure_ascii=False
+        ),
         encoding="utf-8",
     )
 
@@ -81,7 +98,11 @@ def _fetch_prices(tickers: tuple[str, ...]) -> dict[str, float]:
         if isinstance(close, pd.Series):
             close = close.to_frame(name=tickers[0])
         last = close.ffill().iloc[-1]
-        return {str(t): float(last[t]) for t in tickers if t in last.index and not pd.isna(last[t])}
+        return {
+            str(t): float(last[t])
+            for t in tickers
+            if t in last.index and not pd.isna(last[t])
+        }
     except Exception:
         return {}
 
@@ -112,10 +133,14 @@ def _age_str(iso: str | None) -> str:
     try:
         dt = datetime.fromisoformat(iso)
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        now = datetime.now(tz=timezone.utc)
+            # Ingen timezone info — antag lokal tid
+            now = datetime.now()
+        else:
+            now = datetime.now(tz=dt.tzinfo)
         diff = now - dt
         m = int(diff.total_seconds() // 60)
+        if m < 0:
+            m = 0
         if m < 60:
             return f"{m} min siden"
         return f"{m // 60}t {m % 60}m siden"
@@ -191,7 +216,9 @@ def _fetch_technicals(tickers: tuple[str, ...]) -> dict[str, dict]:
     if not tickers:
         return {}
     try:
-        raw = yf.download(list(tickers), period="300d", auto_adjust=True, progress=False)
+        raw = yf.download(
+            list(tickers), period="300d", auto_adjust=True, progress=False
+        )
         if raw.empty:
             return {}
         close = raw["Close"] if "Close" in raw.columns else raw
@@ -215,7 +242,9 @@ def _fetch_technicals(tickers: tuple[str, ...]) -> dict[str, dict]:
             if sma200 is not None:
                 # Golden cross: SMA50 > SMA200 (og var under for 5 dage siden = frisk kryds)
                 sma50_prev = float(s.iloc[-6:-1].mean()) if len(s) >= 6 else sma50
-                sma200_prev = float(s.tail(205).head(200).mean()) if len(s) >= 205 else sma200
+                sma200_prev = (
+                    float(s.tail(205).head(200).mean()) if len(s) >= 205 else sma200
+                )
                 golden = sma50 > sma200
                 fresh_cross = (sma50 > sma200) and (sma50_prev <= sma200_prev)
                 death_cross = sma50 < sma200
@@ -237,12 +266,25 @@ def _fetch_technicals(tickers: tuple[str, ...]) -> dict[str, dict]:
             # RSI 14
             delta = s.diff()
             alpha = 1.0 / 14
-            gain = delta.clip(lower=0).ewm(alpha=alpha, adjust=False, min_periods=14).mean()
-            loss = (-delta).clip(lower=0).ewm(alpha=alpha, adjust=False, min_periods=14).mean()
+            gain = (
+                delta.clip(lower=0)
+                .ewm(alpha=alpha, adjust=False, min_periods=14)
+                .mean()
+            )
+            loss = (
+                (-delta)
+                .clip(lower=0)
+                .ewm(alpha=alpha, adjust=False, min_periods=14)
+                .mean()
+            )
             rsi_s = 100 - 100 / (1 + gain / loss.replace(0, np.nan))
             rsi_clean = rsi_s.dropna()
             rsi_val = float(rsi_clean.iloc[-1]) if len(rsi_clean) >= 1 else None
-            rsi_trend = float(rsi_clean.iloc[-1] - rsi_clean.iloc[-6]) if len(rsi_clean) >= 6 else 0.0
+            rsi_trend = (
+                float(rsi_clean.iloc[-1] - rsi_clean.iloc[-6])
+                if len(rsi_clean) >= 6
+                else 0.0
+            )
 
             result[ticker] = {
                 "price": price,
@@ -395,6 +437,8 @@ if top_stocks:
     # Hent tekniske indikatorer for top-15 (1t cache)
     top15_tickers = tuple(s["ticker"] for s in top_stocks[:15])
     tech = _fetch_technicals(top15_tickers)
+    paper = _load_paper_trades()
+    paper_positions = paper.get("positions", {})
 
     rows = []
     for s in top_stocks[:15]:
@@ -405,22 +449,36 @@ if top_stocks:
         t = tech.get(ticker, {})
         sma50_str = (
             f"{'🟢' if t.get('above_sma50') else '🔴'} {t['pct_vs_sma50']:+.1f}%"
-            if t else "—"
+            if t
+            else "—"
         )
         cross_str = t.get("cross", "—") if t else "—"
 
         verdict, v_icon = _compute_verdict(s["ml_score"], t)
 
-        rows.append({
-            "#": s["rank"],
-            "Aktie": ticker,
-            "Score": f"{s['ml_score_pct']:.1f}%",
-            "Ny": "🆕" if is_new else "",
-            "✅": "✅" if in_port else "",
-            "Vs SMA50": sma50_str,
-            "GC / DC": cross_str,
-            "Anbefaling": f"{v_icon} {verdict}",
-        })
+        # Paper afkast siden debut på top-15
+        paper_str = "—"
+        pos = paper_positions.get(ticker)
+        if pos and pos.get("entry_price") and t.get("price"):
+            paper_ret = (t["price"] / pos["entry_price"] - 1) * 100
+            arrow = "🟢" if paper_ret >= 0 else "🔴"
+            paper_str = f"{arrow} {paper_ret:+.1f}%"
+        elif pos and pos.get("entry_date"):
+            paper_str = f"📅 {pos['entry_date']}"
+
+        rows.append(
+            {
+                "#": s["rank"],
+                "Aktie": ticker,
+                "Score": f"{s['ml_score_pct']:.1f}%",
+                "Ny": "🆕" if is_new else "",
+                "✅": "✅" if in_port else "",
+                "Paper %": paper_str,
+                "Vs SMA50": sma50_str,
+                "GC / DC": cross_str,
+                "Anbefaling": f"{v_icon} {verdict}",
+            }
+        )
     df15 = pd.DataFrame(rows)
     st.dataframe(
         df15,
@@ -432,6 +490,7 @@ if top_stocks:
             "Score": st.column_config.TextColumn(width="small"),
             "Ny": st.column_config.TextColumn(width="small"),
             "✅": st.column_config.TextColumn(width="small"),
+            "Paper %": st.column_config.TextColumn(width="small"),
             "Vs SMA50": st.column_config.TextColumn(width="medium"),
             "GC / DC": st.column_config.TextColumn(width="medium"),
             "Anbefaling": st.column_config.TextColumn(width="medium"),
@@ -452,13 +511,110 @@ if top_stocks:
     st.markdown("**🔍 Åbn aktiedetalje:**")
     btn_cols = st.columns(8)
     for i, s in enumerate(top_stocks[:15]):
-        if btn_cols[i % 8].button(s["ticker"], key=f"detail_{s['ticker']}", use_container_width=True):
+        if btn_cols[i % 8].button(
+            s["ticker"], key=f"detail_{s['ticker']}", use_container_width=True
+        ):
             st.session_state["selected_ticker"] = s["ticker"]
             st.session_state["came_from_ml_live"] = True
             st.switch_page("pages/2_Aktiedetalje.py")
 
 else:
     st.warning("Ingen ranking-data tilgaengelig.")
+
+st.divider()
+
+# ------------------------------------------------------------------
+# Paper Portfolio P&L
+# ------------------------------------------------------------------
+st.subheader("📈 Paper Portfolio P&L")
+st.caption("Simuleret equal-weight portefølje der følger top-15 listen automatisk")
+
+_paper = _load_paper_trades()
+_paper_positions = _paper.get("positions", {})
+_closed_trades = _paper.get("closed_trades", [])
+_equity_history = _paper.get("equity_history", [])
+
+if not _paper_positions and not _closed_trades:
+    st.info(
+        "Paper trading starter automatisk næste gang scorer.py kører (kl. 8, 12, 18 eller 22). Kør manuelt for at starte nu: `python live/scorer.py`"
+    )
+else:
+    # Åbne positioner med live P&L
+    if _paper_positions:
+        top15_tickers_paper = tuple(s["ticker"] for s in top_stocks[:15])
+        _paper_prices = _fetch_prices(top15_tickers_paper)
+
+        open_rows = []
+        open_returns = []
+        for ticker, pos in sorted(_paper_positions.items()):
+            entry_price = pos.get("entry_price")
+            current_price = _paper_prices.get(ticker)
+            if entry_price and current_price:
+                ret_pct = (current_price / entry_price - 1) * 100
+                open_returns.append(ret_pct)
+                arrow = "🟢" if ret_pct >= 0 else "🔴"
+                ret_str = f"{arrow} {ret_pct:+.1f}%"
+            else:
+                ret_str = "—"
+                ret_pct = None
+            open_rows.append(
+                {
+                    "Aktie": ticker,
+                    "Debut": pos.get("entry_date", "?"),
+                    "Købt @": f"${entry_price:.2f}" if entry_price else "—",
+                    "Kurs nu": f"${current_price:.2f}" if current_price else "—",
+                    "Afkast": ret_str,
+                }
+            )
+
+        # Samlet P&L for åbne positioner
+        if open_returns:
+            avg_open = sum(open_returns) / len(open_returns)
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Åbne positioner", len(open_returns))
+            c2.metric("Snit afkast (åbne)", f"{avg_open:+.1f}%")
+            best = max(open_returns)
+            worst = min(open_returns)
+            c3.metric("Bedst / Dårligst", f"{best:+.1f}% / {worst:+.1f}%")
+
+        st.dataframe(pd.DataFrame(open_rows), use_container_width=True, hide_index=True)
+
+    # Lukkede handler
+    if _closed_trades:
+        closed_returns = [
+            t["return_pct"] for t in _closed_trades if t.get("return_pct") is not None
+        ]
+        if closed_returns:
+            avg_closed = sum(closed_returns) / len(closed_returns)
+            wins = sum(1 for r in closed_returns if r > 0)
+            st.caption(
+                f"**Lukkede handler:** {len(closed_returns)} | Snit: {avg_closed:+.1f}% | Win rate: {wins}/{len(closed_returns)} ({wins / len(closed_returns) * 100:.0f}%)"
+            )
+
+        with st.expander(f"📋 Historik ({len(_closed_trades)} lukkede handler)"):
+            closed_rows = []
+            for t in sorted(
+                _closed_trades, key=lambda x: x.get("exit_date", ""), reverse=True
+            ):
+                ret = t.get("return_pct")
+                arrow = ("🟢" if ret >= 0 else "🔴") if ret is not None else "—"
+                closed_rows.append(
+                    {
+                        "Aktie": t["ticker"],
+                        "Købt": t.get("entry_date", "?"),
+                        "Solgt": t.get("exit_date", "?"),
+                        "Købt @": f"${t['entry_price']:.2f}"
+                        if t.get("entry_price")
+                        else "—",
+                        "Solgt @": f"${t['exit_price']:.2f}"
+                        if t.get("exit_price")
+                        else "—",
+                        "Afkast": f"{arrow} {ret:+.1f}%" if ret is not None else "—",
+                    }
+                )
+            st.dataframe(
+                pd.DataFrame(closed_rows), use_container_width=True, hide_index=True
+            )
 
 st.divider()
 
@@ -576,19 +732,24 @@ if portfolio:
         else:
             ml_status = "🔴 Sælg"
 
-        rows.append({
-            "Ticker": ticker,
-            "Købt": buy_date_str,
-            "Købt kurs": f"${buy_price:.2f}" if buy_price else "—",
-            "Kurs nu": f"${curr_price:.2f}" if curr_price else "—",
-            "Afkast": f"{pnl_emoji} {pnl_str}",
-            "Dage": days_str,
-            "ML #": rank_str,
-            "Status": ml_status,
-        })
+        rows.append(
+            {
+                "Ticker": ticker,
+                "Købt": buy_date_str,
+                "Købt kurs": f"${buy_price:.2f}" if buy_price else "—",
+                "Kurs nu": f"${curr_price:.2f}" if curr_price else "—",
+                "Afkast": f"{pnl_emoji} {pnl_str}",
+                "Dage": days_str,
+                "ML #": rank_str,
+                "Status": ml_status,
+            }
+        )
 
     port_df = pd.DataFrame(rows)
-    st.dataframe(port_df, use_container_width=True, hide_index=True,
+    st.dataframe(
+        port_df,
+        use_container_width=True,
+        hide_index=True,
         column_config={
             "Ticker": st.column_config.TextColumn(width="small"),
             "Købt": st.column_config.TextColumn(width="small"),
@@ -602,7 +763,9 @@ if portfolio:
     )
 
     # Samlet P&L hvis vi har nok data
-    positions_with_prices = [p for p in portfolio if p.get("buy_price") and current_prices.get(p["ticker"])]
+    positions_with_prices = [
+        p for p in portfolio if p.get("buy_price") and current_prices.get(p["ticker"])
+    ]
     if positions_with_prices:
         total_buy = sum(p["buy_price"] for p in positions_with_prices)
         total_cur = sum(current_prices[p["ticker"]] for p in positions_with_prices)
@@ -610,12 +773,17 @@ if portfolio:
         n = len(positions_with_prices)
         col_tot1, col_tot2, col_tot3 = st.columns(3)
         col_tot1.metric("Positioner med kursdata", f"{n}/{len(portfolio)}")
-        col_tot2.metric("Gns. urealiseret afkast", f"{overall_pct:+.1f}%",
-                        delta_color="normal")
-        best = max(positions_with_prices,
-                   key=lambda p: current_prices[p["ticker"]] / p["buy_price"])
-        worst = min(positions_with_prices,
-                    key=lambda p: current_prices[p["ticker"]] / p["buy_price"])
+        col_tot2.metric(
+            "Gns. urealiseret afkast", f"{overall_pct:+.1f}%", delta_color="normal"
+        )
+        best = max(
+            positions_with_prices,
+            key=lambda p: current_prices[p["ticker"]] / p["buy_price"],
+        )
+        worst = min(
+            positions_with_prices,
+            key=lambda p: current_prices[p["ticker"]] / p["buy_price"],
+        )
         col_tot3.metric(
             "Bedst / Dårligst",
             f"{best['ticker']} / {worst['ticker']}",
@@ -629,26 +797,34 @@ st.divider()
 # Rediger portefølje
 # ------------------------------------------------------------------
 with st.expander("✏️ Rediger portefølje", expanded=not bool(portfolio)):
-    st.caption(
-        "Tilføj/fjern aktier. Købskurs hentes automatisk (dagens kurs)."
-    )
+    st.caption("Tilføj/fjern aktier. Købskurs hentes automatisk (dagens kurs).")
 
     col1, col2, col3 = st.columns([2, 1, 1])
-    new_ticker = col1.text_input(
-        "Tilføj ticker", placeholder="fx AAPL", label_visibility="collapsed"
-    ).strip().upper()
+    new_ticker = (
+        col1.text_input(
+            "Tilføj ticker", placeholder="fx AAPL", label_visibility="collapsed"
+        )
+        .strip()
+        .upper()
+    )
     custom_price = col2.number_input(
-        "Købt til (valgfrit)", min_value=0.0, value=0.0, format="%.2f",
-        label_visibility="collapsed", help="Angiv købt kurs — ellers bruges dagens kurs"
+        "Købt til (valgfrit)",
+        min_value=0.0,
+        value=0.0,
+        format="%.2f",
+        label_visibility="collapsed",
+        help="Angiv købt kurs — ellers bruges dagens kurs",
     )
     if col3.button("Tilføj", use_container_width=True) and new_ticker:
         if new_ticker not in portfolio_set:
             buy_price = custom_price if custom_price > 0 else _get_buy_price(new_ticker)
-            portfolio.append({
-                "ticker": new_ticker,
-                "buy_date": str(date.today()),
-                "buy_price": round(buy_price, 4) if buy_price else None,
-            })
+            portfolio.append(
+                {
+                    "ticker": new_ticker,
+                    "buy_date": str(date.today()),
+                    "buy_price": round(buy_price, 4) if buy_price else None,
+                }
+            )
             _save_portfolio(portfolio)
             price_str = f" (kurs: ${buy_price:.2f})" if buy_price else ""
             st.success(f"{new_ticker} tilføjet{price_str}")
@@ -659,23 +835,33 @@ with st.expander("✏️ Rediger portefølje", expanded=not bool(portfolio)):
         btn_cols = st.columns(5)
         for i, pos in enumerate(sorted(portfolio, key=lambda p: p["ticker"])):
             ticker = pos["ticker"]
-            if btn_cols[i % 5].button(f"🗑 {ticker}", key=f"del_{ticker}", use_container_width=True):
+            if btn_cols[i % 5].button(
+                f"🗑 {ticker}", key=f"del_{ticker}", use_container_width=True
+            ):
                 portfolio = [p for p in portfolio if p["ticker"] != ticker]
                 _save_portfolio(portfolio)
                 st.rerun()
 
-    if st.button("📋 Synkroniser med ML top-15",
-                 help="Tilføj manglende top-15 aktier og behold eksisterende"):
+    if st.button(
+        "📋 Synkroniser med ML top-15",
+        help="Tilføj manglende top-15 aktier og behold eksisterende",
+    ):
         prices = _fetch_prices(tuple(sorted(recommended_set - portfolio_set)))
         for ticker in sorted(recommended_set - portfolio_set):
             buy_price = prices.get(ticker)
-            portfolio.append({
-                "ticker": ticker,
-                "buy_date": str(date.today()),
-                "buy_price": round(buy_price, 4) if buy_price else None,
-            })
+            portfolio.append(
+                {
+                    "ticker": ticker,
+                    "buy_date": str(date.today()),
+                    "buy_price": round(buy_price, 4) if buy_price else None,
+                }
+            )
         # Fjern aktier der er faldet ud af top-20
-        portfolio = [p for p in portfolio if p["ticker"] in top20_set or p["ticker"] in portfolio_set]
+        portfolio = [
+            p
+            for p in portfolio
+            if p["ticker"] in top20_set or p["ticker"] in portfolio_set
+        ]
         _save_portfolio(portfolio)
         st.success("Portefølje synkroniseret med ML top-15")
         st.rerun()
@@ -686,10 +872,14 @@ st.divider()
 # Positionsstørrelse-beregner
 # ------------------------------------------------------------------
 st.subheader("🧮 Positionsstørrelse-beregner")
-st.caption("Vælg aktier fra top-15, angiv vægte og investeringsbeløb — beregneren viser hvor meget du skal sætte i hver.")
+st.caption(
+    "Vælg aktier fra top-15, angiv vægte og investeringsbeløb — beregneren viser hvor meget du skal sætte i hver."
+)
 
 top15_options = [s["ticker"] for s in top_stocks[:15]]
-default_selected = [s["ticker"] for s in top_stocks[:15] if s["ticker"] in portfolio_set] or top15_options[:5]
+default_selected = [
+    s["ticker"] for s in top_stocks[:15] if s["ticker"] in portfolio_set
+] or top15_options[:5]
 
 col_sel, col_amt = st.columns([3, 1])
 with col_sel:
@@ -697,20 +887,26 @@ with col_sel:
         "Vælg aktier",
         options=top15_options,
         default=default_selected,
-        format_func=lambda t: f"{t}  (#{next(s['rank'] for s in top_stocks if s['ticker']==t)} · {next(s['ml_score_pct'] for s in top_stocks if s['ticker']==t):.1f}%)",
+        format_func=lambda t: (
+            f"{t}  (#{next(s['rank'] for s in top_stocks if s['ticker'] == t)} · {next(s['ml_score_pct'] for s in top_stocks if s['ticker'] == t):.1f}%)"
+        ),
     )
 with col_amt:
-    currency = st.selectbox("Valuta", ["USD", "DKK"], index=0, label_visibility="visible")
+    currency = st.selectbox(
+        "Valuta", ["USD", "DKK"], index=1, label_visibility="visible"
+    )
     total_amount = st.number_input(
         f"Samlet beløb ({currency})",
         min_value=0.0,
-        value=72_500.0 if currency == "DKK" else 10_000.0,
+        value=50_000.0 if currency == "DKK" else 10_000.0,
         step=1000.0,
         format="%.0f",
     )
 
 if selected and total_amount > 0:
-    st.markdown("**Vægte per aktie** (træk i slider — normaliseres automatisk til 100%)")
+    st.markdown(
+        "**Vægte per aktie** (træk i slider — normaliseres automatisk til 100%)"
+    )
 
     weights: dict[str, float] = {}
     n = len(selected)
@@ -749,13 +945,15 @@ if selected and total_amount > 0:
             price = prices.get(ticker)
             shares = amount / price if price else None
 
-            rows.append({
-                "Aktie": ticker,
-                "Vægt": f"{w_norm*100:.1f}%",
-                f"Beløb ({currency})": f"{amount:,.0f}",
-                "Kurs (USD)": f"${price:.2f}" if price else "—",
-                "Antal aktier": f"{shares:.2f}" if shares else "—",
-            })
+            rows.append(
+                {
+                    "Aktie": ticker,
+                    "Vægt": f"{w_norm * 100:.1f}%",
+                    f"Beløb ({currency})": f"{amount:,.0f}",
+                    "Kurs (USD)": f"${price:.2f}" if price else "—",
+                    "Antal aktier": f"{shares:.2f}" if shares else "—",
+                }
+            )
 
         result_df = pd.DataFrame(rows)
         st.dataframe(
@@ -781,7 +979,9 @@ if selected and total_amount > 0:
         # Vis advarsel hvis kurser mangler (fx weekend/markedet lukket)
         missing_prices = [t for t in selected if t not in prices]
         if missing_prices:
-            st.caption(f"⚠️ Ingen aktuel kurs for: {', '.join(missing_prices)} — antal aktier kan ikke beregnes.")
+            st.caption(
+                f"⚠️ Ingen aktuel kurs for: {', '.join(missing_prices)} — antal aktier kan ikke beregnes."
+            )
 
 st.divider()
 

@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+macOS launchd job: starter Streamlit-dashboardet automatisk ved login
+og holder det kørende kontinuerligt.
+
+INSTALLATION (Terminal på Mac):
+  1. Kopier filen til ~/Library/LaunchAgents/:
+       cp live/com.scanstrat.dashboard.plist ~/Library/LaunchAgents/
+  2. Load job'et:
+       launchctl load ~/Library/LaunchAgents/com.scanstrat.dashboard.plist
+  3. Tilgå dashboardet på:
+       - Samme netværk:  http://<mac-ip>:8501
+       - Via Tailscale:  http://<tailscale-ip>:8501
+
+  Stop dashboardet:
+       launchctl stop com.scanstrat.dashboard
+  Fjern det helt:
+       launchctl unload ~/Library/LaunchAgents/com.scanstrat.dashboard.plist
+-->
+<plist version="1.0">
+<dict>
+
+    <key>Label</key>
+    <string>com.scanstrat.dashboard</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/katrine/opt/anaconda3/envs/scanstrat_clean/bin/streamlit</string>
+        <string>run</string>
+        <string>/Users/katrine/Desktop/ScanStrat/ScanStrat/app.py</string>
+        <string>--server.address</string>
+        <string>0.0.0.0</string>
+        <string>--server.port</string>
+        <string>8501</string>
+        <string>--server.headless</string>
+        <string>true</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/katrine/Desktop/ScanStrat/ScanStrat</string>
+
+    <!-- Start ved login og genstart automatisk hvis det crasher -->
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/katrine/Library/Logs/scanstrat_dashboard.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/katrine/Library/Logs/scanstrat_dashboard_error.log</string>
+
+</dict>
+</plist>

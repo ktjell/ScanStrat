@@ -26,17 +26,13 @@ Output-logs findes i:
 
     <key>ProgramArguments</key>
     <array>
-        <!-- Tilpas stien til uv på din Mac (find den med: which uv) -->
-        <string>/Users/DIT_BRUGERNAVN/.local/bin/uv</string>
-        <string>run</string>
-        <string>python</string>
-        <!-- Tilpas til din Mac-sti -->
-        <string>/Users/DIT_BRUGERNAVN/ScanStrat/live/scorer.py</string>
+        <string>/Users/katrine/opt/anaconda3/envs/scanstrat_clean/bin/python</string>
+        <string>/Users/katrine/Desktop/ScanStrat/ScanStrat/live/scorer.py</string>
     </array>
 
     <!-- Arbejdsmappe — skal matche ovenstående sti -->
     <key>WorkingDirectory</key>
-    <string>/Users/DIT_BRUGERNAVN/ScanStrat</string>
+    <string>/Users/katrine/Desktop/ScanStrat/ScanStrat</string>
 
     <!-- Kør kl. 8, 12, 18 og 22 (kun hverdage håndteres af scorer.py selv) -->
     <key>StartCalendarInterval</key>

@@ -1,12 +1,9 @@
-[[tool.uv.index]]
-url = "https://gitlab.com/api/v4/groups/10081543/-/packages/pypi/simple"
-name = "netra-gitlab"
 [project]
 name = "ScanStrat"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.14"
 dependencies = [
     "ipykernel>=7.2.0",
     "jinja2>=3.1.6",
@@ -19,11 +16,14 @@ dependencies = [
     "scipy>=1.15.3",
     "streamlit>=1.58.0",
     "yfinance>=1.4.1",
-    "pyarrow>=19.0.0",
     "lxml>=6.1.1",
-    "xgboost>=3.2.0",
+    "pyarrow>=14.0.0,<18.0",
+    "xgboost>=2.1.0,<3.0",
     "scikit-learn>=1.7.2",
 ]
+
+[tool.uv]
+no-build-package = ["pyarrow", "xgboost"]
 
 [tool.uv.sources]
 
