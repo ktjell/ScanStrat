@@ -156,6 +156,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+.lock
 
 # Spyder project settings
 .spyderproject
@@ -205,6 +206,7 @@ tempCodeRunnerFile.py
 
 # Ruff stuff:
 .ruff_cache/
+.parquet
 
 # PyPI configuration file
 .pypirc
