@@ -201,21 +201,61 @@ def run_backtest(
         return {"error": "Ingen trades genereret"}
 
     # --- Equity curve ---
-    # Simuler portfolio: del kapital ligeligt mellem op til MAX_POSITIONS aktive positioner
+    # Korrekt event-drevet simulation:
+    # - Kapital deles ligeligt op til MAX_POSITIONS samtidige positioner
+    # - En position åbnes kun hvis der er ledig kapital
+    # - Kapital frigives når positionen lukkes
     all_dates = pd.date_range(start=str(START), end=str(END), freq="B")
     equity = pd.Series(PORTFOLIO_START, index=all_dates)
 
-    # Enkel simulering: hvert trade bidrager med PORTFOLIO_START / MAX_POSITIONS
-    position_size = PORTFOLIO_START / MAX_POSITIONS
-    pnl_by_exit = {}
-    for _, t in trades_df.iterrows():
-        exit_key = pd.Timestamp(t["exit_date"])
-        pnl = position_size * t["net_return_pct"] / 100
-        pnl_by_exit[exit_key] = pnl_by_exit.get(exit_key, 0.0) + pnl
+    # Sorter trades efter entry-dato
+    trades_sorted = trades_df.sort_values("entry_date").reset_index(drop=True)
 
-    for i in range(1, len(equity)):
-        dt = equity.index[i]
-        equity.iloc[i] = equity.iloc[i - 1] + pnl_by_exit.get(dt, 0.0)
+    cash = PORTFOLIO_START
+    open_positions = []  # liste af dicts med {exit_date, position_value}
+
+    daily_cash = {}  # dato -> cash-saldo ved dagens slutning
+
+    for trade_date in all_dates:
+        # Luk positioner der udløber i dag eller tidligere
+        still_open = []
+        for pos in open_positions:
+            if pd.Timestamp(pos["exit_date"]) <= trade_date:
+                cash += pos["exit_value"]
+            else:
+                still_open.append(pos)
+        open_positions = still_open
+
+        # Åbn nye positioner der starter i dag og der er plads til
+        todays_entries = trades_sorted[
+            pd.to_datetime(trades_sorted["entry_date"]) == trade_date
+        ]
+        for _, t in todays_entries.iterrows():
+            if len(open_positions) >= MAX_POSITIONS:
+                break
+            # Brug en ligelig andel af den aktuelle kapital
+            position_size = cash / (MAX_POSITIONS - len(open_positions))
+            position_size = min(
+                position_size, cash
+            )  # kan aldrig overstige tilgængelig cash
+            if position_size <= 0:
+                break
+            cash -= position_size
+            exit_value = position_size * (1 + t["net_return_pct"] / 100)
+            open_positions.append(
+                {
+                    "exit_date": t["exit_date"],
+                    "exit_value": exit_value,
+                }
+            )
+
+        # Samlet porteføljeværdi = cash + åbne positioner (til entry-værdi, approx)
+        open_value = sum(p["exit_value"] for p in open_positions)
+        daily_cash[trade_date] = cash + open_value
+
+    for dt in all_dates:
+        if dt in daily_cash:
+            equity[dt] = daily_cash[dt]
 
     # Benchmark equity curve
     bm_period = benchmark_prices[str(START) : str(END)].dropna()
