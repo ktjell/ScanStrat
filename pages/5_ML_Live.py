@@ -87,22 +87,44 @@ def _save_portfolio(positions: list[dict]) -> None:
 
 @st.cache_data(ttl=300, show_spinner=False)
 def _fetch_prices(tickers: tuple[str, ...]) -> dict[str, float]:
-    """Hent seneste close-kurs for en tuple af tickers (5 min cache)."""
+    """Hent seneste intradag-kurs for en tuple af tickers (5 min cache).
+    Bruger 5-minutters intervaller så kursen afspejler hvad der sker i løbet af dagen.
+    Falder tilbage til daglig close hvis intradag-data ikke er tilgængeligt.
+    """
     if not tickers:
         return {}
     try:
-        raw = yf.download(list(tickers), period="2d", auto_adjust=True, progress=False)
+        raw = yf.download(
+            list(tickers), period="1d", interval="5m", auto_adjust=True, progress=False
+        )
         if raw.empty:
-            return {}
+            raise ValueError("Ingen intradag-data")
         close = raw["Close"] if "Close" in raw.columns else raw
         if isinstance(close, pd.Series):
             close = close.to_frame(name=tickers[0])
         last = close.ffill().iloc[-1]
-        return {
+        prices = {
             str(t): float(last[t])
             for t in tickers
             if t in last.index and not pd.isna(last[t])
         }
+        # Fallback til daglig close for tickers der mangler intradag-data
+        missing = [t for t in tickers if t not in prices]
+        if missing:
+            raw_daily = yf.download(
+                missing, period="2d", auto_adjust=True, progress=False
+            )
+            if not raw_daily.empty:
+                close_d = (
+                    raw_daily["Close"] if "Close" in raw_daily.columns else raw_daily
+                )
+                if isinstance(close_d, pd.Series):
+                    close_d = close_d.to_frame(name=missing[0])
+                last_d = close_d.ffill().iloc[-1]
+                for t in missing:
+                    if t in last_d.index and not pd.isna(last_d[t]):
+                        prices[str(t)] = float(last_d[t])
+        return prices
     except Exception:
         return {}
 
