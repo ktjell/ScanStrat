@@ -45,8 +45,10 @@ def _load_ranking() -> dict | None:
     if not _RANKING_FILE.exists():
         return None
     try:
-        return json.loads(_RANKING_FILE.read_text(encoding="utf-8"))
-    except Exception:
+        raw = _RANKING_FILE.read_bytes().decode("utf-8-sig")  # håndterer BOM
+        return json.loads(raw)
+    except Exception as e:
+        st.warning(f"Kunne ikke læse pead_ranking.json: {e}")
         return None
 
 
@@ -144,7 +146,7 @@ ranking = _load_ranking()
 
 if ranking is None:
     st.error(
-        "Ingen PEAD-data fundet. Kør `uv run python live/pead_scorer.py` for at generere data."
+        f"Ingen PEAD-data fundet i `{_RANKING_FILE}`. Kør `uv run python live/pead_scorer.py` for at generere data."
     )
     st.stop()
 
