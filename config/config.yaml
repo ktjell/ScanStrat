@@ -1,6 +1,6 @@
 cache:
   cache_dir: data/cache
-  max_age_hours: 24
+  max_age_hours: 168
 
 data:
   default_period_years: 5

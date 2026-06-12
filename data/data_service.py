@@ -79,9 +79,10 @@ class DataService:
         """
         Return OHLCV data for multiple tickers.
 
-        Fresh tickers are served from cache; stale tickers are fetched
-        in a single batch call to minimise round trips.
-        Known-bad tickers (delisted, wrong symbol) are skipped silently.
+        Friske tickers (cache dækker til seneste handelsdag) serveres fra disk.
+        Bagud-daterede tickers: hent kun de manglende dage og append til cache.
+        Ukendte tickers: hent al historik og gem.
+        Known-bad tickers (delisted, wrong symbol) er skippet.
         """
         start, end = self._resolve_date_range(start, end)
 
@@ -91,35 +92,81 @@ class DataService:
             logger.debug("Skipping %d known-bad tickers", len(skipped))
 
         cached: dict[str, pd.DataFrame] = {}
-        to_fetch: list[str] = []
+        to_fetch_full: list[str] = []  # ingen cache — hent al historik
+        to_fetch_update: dict[str, date] = {}  # cache bagud — hent fra denne dato
 
         for ticker in good_tickers:
-            if not force_refresh and self._cache_covers(ticker, start, end):
+            if not force_refresh and self._cache.is_fresh(ticker):
+                # Cache er up-to-date — brug den direkte
                 try:
                     df = self._cache.load(ticker)
-                    cached[ticker] = df.loc[str(start) : str(end)]
-                    continue
+                    if not df.empty and df.index[0].date() <= start + timedelta(days=7):
+                        cached[ticker] = df.loc[str(start) : str(end)]
+                        continue
                 except Exception:
-                    pass  # fall through to fetch
-            to_fetch.append(ticker)
+                    pass
+            # Tjek om vi har gammel cache der blot mangler nyeste dage
+            last = self._cache.last_date(ticker)
+            if last is not None and last >= start:
+                # Vi har historik — hent kun fra dagen efter seneste kendte dato
+                to_fetch_update[ticker] = last + timedelta(days=1)
+            else:
+                to_fetch_full.append(ticker)
 
-        if to_fetch:
-            logger.info("Fetching %d ticker(s) from source", len(to_fetch))
-            fetched = self._loader.fetch_batch(to_fetch, start, end)
-
-            # Mark tickers that yfinance returned nothing for as bad
-            failed = [t for t in to_fetch if t not in fetched]
+        # Hent tickers uden cache (fuld historik)
+        if to_fetch_full:
+            logger.info(
+                "Fetching %d ticker(s) from source (full history)", len(to_fetch_full)
+            )
+            fetched = self._loader.fetch_batch(to_fetch_full, start, end)
+            failed = [t for t in to_fetch_full if t not in fetched]
             if failed:
-                logger.info(
-                    "Marking %d ticker(s) as bad (no data returned): %s",
-                    len(failed),
-                    failed[:10],
-                )
+                logger.info("Marking %d ticker(s) as bad: %s", len(failed), failed[:10])
                 self._bad.mark_bad_batch(failed)
-
             for ticker, df in fetched.items():
                 self._cache.save(ticker, df)
                 cached[ticker] = df.loc[str(start) : str(end)]
+
+        # Hent tickers med gammel cache (kun manglende dage)
+        if to_fetch_update:
+            # Gruppér alle update-tickers i ét batch-kald med fælles start = tidligste manglende dato
+            earliest_update = min(to_fetch_update.values())
+            logger.info(
+                "Updating %d ticker(s) from %s (appending missing days)",
+                len(to_fetch_update),
+                earliest_update,
+            )
+            fetched_update = self._loader.fetch_batch(
+                list(to_fetch_update.keys()), earliest_update, end
+            )
+            failed_update = [t for t in to_fetch_update if t not in fetched_update]
+            if failed_update:
+                logger.debug(
+                    "No new data for %d ticker(s) (expected for recent cache)",
+                    len(failed_update),
+                )
+            for ticker, new_df in fetched_update.items():
+                # Append kun rækker efter seneste kendte dato
+                cutoff = to_fetch_update[ticker]
+                new_rows = (
+                    new_df[new_df.index.date >= cutoff] if not new_df.empty else new_df
+                )
+                if not new_rows.empty:
+                    self._cache.append(ticker, new_rows)
+                # Load den nu-opdaterede cache
+                try:
+                    df = self._cache.load(ticker)
+                    cached[ticker] = df.loc[str(start) : str(end)]
+                except Exception:
+                    pass
+            # Tickers der ikke fik nye data — brug eksisterende cache som-er
+            for ticker in to_fetch_update:
+                if ticker not in cached:
+                    try:
+                        df = self._cache.load(ticker)
+                        cached[ticker] = df.loc[str(start) : str(end)]
+                    except Exception:
+                        pass
 
         return cached
 
@@ -130,27 +177,7 @@ class DataService:
     def count_cached(self, tickers: list[str], start: date, end: date) -> int:
         """Returner antal tickers der allerede er dækket af disk-cachen."""
         good, _ = self._bad.filter_good(tickers)
-        return sum(1 for t in good if self._cache_covers(t, start, end))
-
-    def _cache_covers(self, ticker: str, start: date, end: date) -> bool:
-        """
-        Return True if the cache is fresh AND covers the requested date range.
-
-        A 7-day tolerance on both ends accounts for weekends and public holidays
-        (the first/last trading day may not fall exactly on start/end).
-        """
-        if not self._cache.is_fresh(ticker):
-            return False
-        try:
-            df = self._cache.load(ticker)
-        except FileNotFoundError:
-            return False
-        if df.empty:
-            return False
-        tolerance = timedelta(days=7)
-        cache_start = df.index[0].date()
-        cache_end = df.index[-1].date()
-        return cache_start <= start + tolerance and cache_end >= end - tolerance
+        return sum(1 for t in good if self._cache.is_fresh(t))
 
     def _resolve_date_range(
         self,
