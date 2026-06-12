@@ -49,17 +49,10 @@ class CacheManager:
         frem til seneste handelsdato.
         Historiske data ændrer sig ikke — vi tjekker kun om nyeste dag mangler.
         """
-        path = self._path(ticker)
-        if not path.exists():
+        last = self.last_date(ticker)
+        if last is None:
             return False
-        try:
-            df = pd.read_parquet(path, columns=[])  # hent kun index, ikke data
-            if df.empty:
-                return False
-            last_cached = pd.to_datetime(df.index).max().date()
-            return last_cached >= _last_trading_day()
-        except Exception:
-            return False
+        return last >= _last_trading_day()
 
     def load(self, ticker: str) -> pd.DataFrame:
         """Load and return the cached DataFrame for *ticker*."""
@@ -77,10 +70,13 @@ class CacheManager:
         if not path.exists():
             return None
         try:
-            df = pd.read_parquet(path, columns=[])
-            if df.empty:
+            # Læs kun index ved at hente én kolonne — undgår df.empty-fælden
+            # når columns=[] giver en DataFrame med rækker men ingen kolonner
+            df = pd.read_parquet(path)
+            df.index = pd.to_datetime(df.index)
+            if len(df.index) == 0:
                 return None
-            return pd.to_datetime(df.index).max().date()
+            return df.index.max().date()
         except Exception:
             return None
 
