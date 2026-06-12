@@ -71,7 +71,9 @@ def _load_paper_trades() -> dict:
 
 
 def _save_paper_trades(pt: dict) -> None:
-    PAPER_FILE.write_text(json.dumps(pt, indent=2, ensure_ascii=False), encoding="utf-8")
+    PAPER_FILE.write_text(
+        json.dumps(pt, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
 
 
 def _get_current_prices(tickers: list[str]) -> dict[str, float]:
@@ -122,16 +124,20 @@ def _update_paper_trades(new_top15: list[str]) -> None:
             ret_pct = round((exit_price / entry["entry_price"] - 1) * 100, 2)
         else:
             ret_pct = None
-        pt["closed_trades"].append({
-            "ticker": ticker,
-            "entry_date": entry["entry_date"],
-            "entry_price": entry.get("entry_price"),
-            "exit_date": today_str,
-            "exit_price": exit_price,
-            "return_pct": ret_pct,
-        })
+        pt["closed_trades"].append(
+            {
+                "ticker": ticker,
+                "entry_date": entry["entry_date"],
+                "entry_price": entry.get("entry_price"),
+                "exit_date": today_str,
+                "exit_price": exit_price,
+                "return_pct": ret_pct,
+            }
+        )
         del positions[ticker]
-        logger.info("Paper SÆLG %s @ %.2f (%.1f%%)", ticker, exit_price or 0, ret_pct or 0)
+        logger.info(
+            "Paper SÆLG %s @ %.2f (%.1f%%)", ticker, exit_price or 0, ret_pct or 0
+        )
 
     # Åbn nye positioner
     for ticker in entering:
@@ -147,14 +153,20 @@ def _update_paper_trades(new_top15: list[str]) -> None:
             returns.append((p / pos["entry_price"] - 1) * 100)
     avg_ret = round(sum(returns) / len(returns), 2) if returns else 0.0
 
-    pt["equity_history"].append({
-        "date": today_str,
-        "open_positions": len(positions),
-        "avg_return_pct": avg_ret,
-    })
+    pt["equity_history"].append(
+        {
+            "date": today_str,
+            "open_positions": len(positions),
+            "avg_return_pct": avg_ret,
+        }
+    )
     pt["positions"] = positions
     _save_paper_trades(pt)
-    logger.info("Paper trades opdateret: %d åbne, %d lukkede", len(positions), len(pt["closed_trades"]))
+    logger.info(
+        "Paper trades opdateret: %d åbne, %d lukkede",
+        len(positions),
+        len(pt["closed_trades"]),
+    )
 
 
 # ------------------------------------------------------------------
@@ -224,6 +236,18 @@ def main() -> None:
 
     # Hent data
     data = _fetch_data(tickers, lookback_days=400)
+
+    # Sikkerhedstjek: hvis vi har for lidt data er noget gået galt (rate-limit, netværk osv.)
+    # Bevar den eksisterende ranking i stedet for at overskrive med dårlig data
+    MIN_TICKERS = max(200, len(tickers) // 2)  # mindst halvdelen af universet
+    if len(data) < MIN_TICKERS:
+        logger.warning(
+            "For lidt data: %d tickers (minimum %d). "
+            "Springer over — beholder eksisterende ranking.",
+            len(data),
+            MIN_TICKERS,
+        )
+        return
 
     # Tilfoej SPY til data-dict hvis ikke allerede der
     if "SPY" not in data:

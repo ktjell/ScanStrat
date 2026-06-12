@@ -719,12 +719,17 @@ if portfolio:
         curr_price = current_prices.get(ticker)
 
         # Beregn P&L
+        shares = pos.get("shares")
         if buy_price and curr_price:
             pnl_pct = (curr_price / buy_price - 1) * 100
-            pnl_str = f"{pnl_pct:+.1f}%"
             pnl_emoji = "🟢" if pnl_pct >= 0 else "🔴"
-            total_invested += buy_price
-            total_now += curr_price
+            if shares:
+                pnl_usd = (curr_price - buy_price) * shares
+                pnl_str = f"{pnl_emoji} {pnl_pct:+.1f}% (${pnl_usd:+,.0f})"
+            else:
+                pnl_str = f"{pnl_emoji} {pnl_pct:+.1f}%"
+            total_invested += (buy_price * shares) if shares else buy_price
+            total_now += (curr_price * shares) if shares else curr_price
         elif curr_price and not buy_price:
             pnl_str = "—"
             pnl_emoji = "⚪"
@@ -758,9 +763,10 @@ if portfolio:
             {
                 "Ticker": ticker,
                 "Købt": buy_date_str,
+                "Antal": f"{shares:.2f}" if shares else "—",
                 "Købt kurs": f"${buy_price:.2f}" if buy_price else "—",
                 "Kurs nu": f"${curr_price:.2f}" if curr_price else "—",
-                "Afkast": f"{pnl_emoji} {pnl_str}",
+                "Afkast": pnl_str,
                 "Dage": days_str,
                 "ML #": rank_str,
                 "Status": ml_status,
@@ -775,9 +781,10 @@ if portfolio:
         column_config={
             "Ticker": st.column_config.TextColumn(width="small"),
             "Købt": st.column_config.TextColumn(width="small"),
+            "Antal": st.column_config.TextColumn(width="small"),
             "Købt kurs": st.column_config.TextColumn(width="small"),
             "Kurs nu": st.column_config.TextColumn(width="small"),
-            "Afkast": st.column_config.TextColumn(width="small"),
+            "Afkast": st.column_config.TextColumn(width="medium"),
             "Dage": st.column_config.TextColumn(width="small"),
             "ML #": st.column_config.TextColumn(width="small"),
             "Status": st.column_config.TextColumn(width="medium"),
@@ -821,7 +828,7 @@ st.divider()
 with st.expander("✏️ Rediger portefølje", expanded=not bool(portfolio)):
     st.caption("Tilføj/fjern aktier. Købskurs hentes automatisk (dagens kurs).")
 
-    col1, col2, col3 = st.columns([2, 1, 1])
+    col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
     new_ticker = (
         col1.text_input(
             "Tilføj ticker", placeholder="fx AAPL", label_visibility="collapsed"
@@ -837,7 +844,15 @@ with st.expander("✏️ Rediger portefølje", expanded=not bool(portfolio)):
         label_visibility="collapsed",
         help="Angiv købt kurs — ellers bruges dagens kurs",
     )
-    if col3.button("Tilføj", use_container_width=True) and new_ticker:
+    custom_shares = col3.number_input(
+        "Antal aktier",
+        min_value=0.0,
+        value=0.0,
+        format="%.4f",
+        label_visibility="collapsed",
+        help="Antal aktier du har købt",
+    )
+    if col4.button("Tilføj", use_container_width=True) and new_ticker:
         if new_ticker not in portfolio_set:
             buy_price = custom_price if custom_price > 0 else _get_buy_price(new_ticker)
             portfolio.append(
@@ -845,6 +860,7 @@ with st.expander("✏️ Rediger portefølje", expanded=not bool(portfolio)):
                     "ticker": new_ticker,
                     "buy_date": str(date.today()),
                     "buy_price": round(buy_price, 4) if buy_price else None,
+                    "shares": round(custom_shares, 4) if custom_shares > 0 else None,
                 }
             )
             _save_portfolio(portfolio)
