@@ -829,6 +829,10 @@ with st.expander("✏️ Rediger portefølje", expanded=not bool(portfolio)):
     st.caption("Tilføj/fjern aktier. Købskurs hentes automatisk (dagens kurs).")
 
     col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+    col1.markdown("<small>Ticker</small>", unsafe_allow_html=True)
+    col2.markdown("<small>Købt kurs ($)</small>", unsafe_allow_html=True)
+    col3.markdown("<small>Antal aktier</small>", unsafe_allow_html=True)
+    col4.markdown("<small>&nbsp;</small>", unsafe_allow_html=True)
     new_ticker = (
         col1.text_input(
             "Tilføj ticker", placeholder="fx AAPL", label_visibility="collapsed"
