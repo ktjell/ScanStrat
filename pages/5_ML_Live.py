@@ -850,9 +850,10 @@ with st.expander("✏️ Rediger portefølje", expanded=not bool(portfolio)):
     )
     custom_shares = col3.number_input(
         "Antal aktier",
-        min_value=0.0,
-        value=0.0,
-        format="%.4f",
+        min_value=0,
+        value=0,
+        step=1,
+        format="%d",
         label_visibility="collapsed",
         help="Antal aktier du har købt",
     )
