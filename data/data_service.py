@@ -59,7 +59,7 @@ class DataService:
         """
         start, end = self._resolve_date_range(start, end)
 
-        if not force_refresh and self._cache_covers(ticker, start, end):
+        if not force_refresh and self._cache.is_fresh(ticker):
             logger.info("Cache hit  '%s'", ticker)
             df = self._cache.load(ticker)
             return df.loc[str(start) : str(end)]

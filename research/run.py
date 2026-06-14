@@ -28,6 +28,7 @@ from strategies.daily_breakout import build as build_daily_breakout
 from strategies.golden_cross import build as build_golden_cross
 from strategies.high52w import build as build_high52w
 from strategies.low_volatility import build as build_low_vol
+from strategies.ensemble_ranker import build as build_ensemble_ranker
 from strategies.ml_ranker import build as build_ml_ranker
 from strategies.momentum import build as build_momentum
 from strategies.reversal import build as build_reversal
@@ -50,7 +51,7 @@ UNIVERSE: str = "US+EU"  # bruges som standard-univers for strategier uden eget 
 
 BENCHMARK: str = "SPY"  # iShares MSCI World ETF (USD)
 # alternativt: "IWDA.AS" (EUR, Euronext) | "SPY" | "QQQ"
-TOP_N: int = 10
+TOP_N: int = 15
 START: date = date(2020, 1, 1)
 END: date = date.today()  # Henter alt tilgængeligt data — inkl. 2025-2026
 COMMISSION: str = "saxo_classic"  # "saxo_classic" | "saxo_platinum" | "zero"
@@ -63,15 +64,16 @@ _useu = None
 
 
 def _get_strategies():
-    name_us, strat_us, rd, tn = build_ml_ranker()
-    name_eu, strat_eu, *_ = build_ml_ranker()
-    us = _build_universe("US")
-    eu = _build_universe("All EU")
+    useu = _build_universe("US+EU")
     portfolio_usd = 72_500.0
+
+    # Ensemble Ranker vs ML Ranker — samme univers, direkte sammenligning
+    ens_name, ens_strat, ens_rd, ens_tn = build_ensemble_ranker()
+    ml_name, ml_strat, ml_rd, ml_tn = build_ml_ranker()
+
     return [
-        # Sammenlign begge universer side om side:
-        (f"{name_us} (US)", strat_us, rd, tn, portfolio_usd, us),
-        (f"{name_eu} (All EU)", strat_eu, rd, tn, portfolio_usd, eu),
+        (f"{ens_name} (US+EU)", ens_strat, ens_rd, ens_tn, portfolio_usd, useu),
+        (f"{ml_name} (US+EU)", ml_strat, ml_rd, ml_tn, portfolio_usd, useu),
         # Andre strategier (kommenter ud/ind efter behov):
         # build_momentum(),
         # build_weekly_momentum(),
@@ -80,7 +82,6 @@ def _get_strategies():
         # build_low_vol(),
         # build_high52w(),
         # build_daily_breakout(),
-        # build_ml_ranker(smart_rebalance=True),
     ]
 
 
