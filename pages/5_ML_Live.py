@@ -9,6 +9,7 @@ Live ML Ranker dashboard:
 from __future__ import annotations
 
 import json
+import subprocess
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -200,10 +201,30 @@ previous_top15: set[str] = set(ranking.get("previous_top15", []))
 # ------------------------------------------------------------------
 # Header-info
 # ------------------------------------------------------------------
-col_a, col_b, col_c = st.columns(3)
+col_a, col_b, col_c, col_run = st.columns([2, 2, 2, 1])
 col_a.metric("Sidst opdateret", _age_str(updated_at))
 col_b.metric("Data pr.", as_of)
 col_c.metric("Univers", f"{universe_size} aktier")
+
+with col_run:
+    st.write("")  # lodret justering
+    st.write("")
+    if st.button(
+        "▶ Kør scorer",
+        help="Starter scorer.py på serveren (~2 min)",
+        use_container_width=True,
+    ):
+        try:
+            scorer_path = _ROOT / "live" / "scorer.py"
+            subprocess.Popen(
+                ["uv", "run", "python", str(scorer_path)],
+                cwd=str(_ROOT),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            st.toast("Scorer startet — opdatering klar om ~2 min ⏳")
+        except Exception as e:
+            st.error(f"Kunne ikke starte scorer: {e}")
 
 st.caption(f"Model traenet: {_age_str(model_trained)}")
 st.divider()
@@ -478,15 +499,23 @@ if top_stocks:
 
         verdict, v_icon = _compute_verdict(s["ml_score"], t)
 
+        # Advarsel: manglende købskurs eller fastholdt position (ikke i top-15 men ingen exitpris)
+        warn_str = ""
+        pos = paper_positions.get(ticker)
+        if pos and not pos.get("entry_price"):
+            warn_str = "⚠️ Ingen købskurs"
+
         # Paper afkast siden debut på top-15
         paper_str = "—"
-        pos = paper_positions.get(ticker)
         if pos and pos.get("entry_price") and t.get("price"):
             paper_ret = (t["price"] / pos["entry_price"] - 1) * 100
             arrow = "🟢" if paper_ret >= 0 else "🔴"
             paper_str = f"{arrow} {paper_ret:+.1f}%"
         elif pos and pos.get("entry_date"):
             paper_str = f"📅 {pos['entry_date']}"
+
+        # Tickers der er fastholdt (i paper positions men ikke i top-15 pga. manglende exitpris)
+        held_tickers = {t for t in paper_positions if t not in recommended_set}
 
         rows.append(
             {
@@ -499,9 +528,17 @@ if top_stocks:
                 "Vs SMA50": sma50_str,
                 "GC / DC": cross_str,
                 "Anbefaling": f"{v_icon} {verdict}",
+                "Info": warn_str,
             }
         )
     df15 = pd.DataFrame(rows)
+
+    # Vis fastholdte positioner der ikke er i top-15
+    if held_tickers:
+        st.warning(
+            f"🔒 Fastholdt (ingen exitpris ved sidst kørsel): {', '.join(sorted(held_tickers))}"
+        )
+
     st.dataframe(
         df15,
         use_container_width=True,
@@ -516,6 +553,7 @@ if top_stocks:
             "Vs SMA50": st.column_config.TextColumn(width="medium"),
             "GC / DC": st.column_config.TextColumn(width="medium"),
             "Anbefaling": st.column_config.TextColumn(width="medium"),
+            "Info": st.column_config.TextColumn(width="medium"),
         },
     )
 
@@ -556,6 +594,17 @@ _paper_positions = _paper.get("positions", {})
 _closed_trades = _paper.get("closed_trades", [])
 _equity_history = _paper.get("equity_history", [])
 _started_at = _paper.get("started_at")
+
+# Udled startdato fra data hvis feltet mangler (bagudkompatibelt)
+if not _started_at:
+    all_dates = (
+        [pos.get("entry_date") for pos in _paper_positions.values()]
+        + [t.get("entry_date") for t in _closed_trades]
+        + [e.get("date") for e in _equity_history]
+    )
+    all_dates = [d for d in all_dates if d]
+    if all_dates:
+        _started_at = min(all_dates)
 
 # Nulstil-knap
 if _paper_positions or _closed_trades:

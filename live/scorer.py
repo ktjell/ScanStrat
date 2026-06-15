@@ -144,7 +144,14 @@ def _update_paper_trades(new_top15: list[str]) -> None:
     for ticker in exiting:
         entry = positions[ticker]
         exit_price = prices.get(ticker)
-        if exit_price and entry.get("entry_price"):
+        if exit_price is None:
+            # Ingen exitpris — bevar positionen i stedet for at lukke blindt
+            logger.warning(
+                "Paper %s: ingen exitpris — position bevares (midlertidigt manglende data?)",
+                ticker,
+            )
+            continue
+        if entry.get("entry_price"):
             ret_pct = round((exit_price / entry["entry_price"] - 1) * 100, 2)
             # Opdater portfolio_value: den lukkede position bidrog med 1/n_slots
             portfolio_value *= 1 + ret_pct / 100 / n_slots
