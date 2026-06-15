@@ -216,8 +216,12 @@ with col_run:
     ):
         try:
             scorer_path = _ROOT / "live" / "scorer.py"
+            # Brug venv-python direkte — uv er ikke i PATH under launchctl
+            import sys as _sys
+
+            python = _sys.executable
             subprocess.Popen(
-                ["uv", "run", "python", str(scorer_path)],
+                [python, str(scorer_path)],
                 cwd=str(_ROOT),
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
