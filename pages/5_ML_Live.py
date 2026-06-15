@@ -137,6 +137,22 @@ def _get_buy_price(ticker: str) -> float | None:
     return prices.get(ticker)
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _get_usddkk() -> float:
+    """Hent USD/DKK valutakurs (1-times cache). Fallback: 6.90."""
+    try:
+        raw = yf.download("USDDKK=X", period="2d", auto_adjust=True, progress=False)
+        if not raw.empty:
+            close = raw["Close"] if "Close" in raw.columns else raw
+            if isinstance(close, pd.DataFrame):
+                close = close.iloc[:, 0]
+            val = float(close.dropna().iloc[-1])
+            return val if 5.0 < val < 10.0 else 6.90
+    except Exception:
+        pass
+    return 6.90
+
+
 # ------------------------------------------------------------------
 # Ranking helpers
 # ------------------------------------------------------------------
@@ -833,6 +849,7 @@ if portfolio:
     # Hent aktuelle kurser (5 min cache)
     all_tickers = tuple(sorted(portfolio_set))
     current_prices = _fetch_prices(all_tickers)
+    usddkk = _get_usddkk()
     today = date.today()
 
     rows = []
@@ -847,12 +864,15 @@ if portfolio:
 
         # Beregn P&L
         shares = pos.get("shares")
+        pnl_dkk_str = "—"
         if buy_price and curr_price:
             pnl_pct = (curr_price / buy_price - 1) * 100
             pnl_emoji = "🟢" if pnl_pct >= 0 else "🔴"
             if shares:
                 pnl_usd = (curr_price - buy_price) * shares
+                pnl_dkk = pnl_usd * usddkk
                 pnl_str = f"{pnl_emoji} {pnl_pct:+.1f}% (${pnl_usd:+,.0f})"
+                pnl_dkk_str = f"{pnl_emoji} {pnl_dkk:+,.0f} kr"
             else:
                 pnl_str = f"{pnl_emoji} {pnl_pct:+.1f}%"
             total_invested += (buy_price * shares) if shares else buy_price
@@ -894,6 +914,7 @@ if portfolio:
                 "Købt kurs": f"${buy_price:.2f}" if buy_price else "—",
                 "Kurs nu": f"${curr_price:.2f}" if curr_price else "—",
                 "Afkast": pnl_str,
+                "Gevinst DKK": pnl_dkk_str,
                 "Dage": days_str,
                 "ML #": rank_str,
                 "Status": ml_status,
@@ -901,6 +922,7 @@ if portfolio:
         )
 
     port_df = pd.DataFrame(rows)
+    st.caption(f"Valutakurs USD/DKK: {usddkk:.2f}")
     st.dataframe(
         port_df,
         use_container_width=True,
@@ -912,6 +934,7 @@ if portfolio:
             "Købt kurs": st.column_config.TextColumn(width="small"),
             "Kurs nu": st.column_config.TextColumn(width="small"),
             "Afkast": st.column_config.TextColumn(width="medium"),
+            "Gevinst DKK": st.column_config.TextColumn(width="medium"),
             "Dage": st.column_config.TextColumn(width="small"),
             "ML #": st.column_config.TextColumn(width="small"),
             "Status": st.column_config.TextColumn(width="medium"),
