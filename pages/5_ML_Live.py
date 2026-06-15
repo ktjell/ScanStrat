@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import uuid
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -984,30 +985,44 @@ with st.expander("✏️ Rediger portefølje", expanded=not bool(portfolio)):
         help="Antal aktier du har købt",
     )
     if col4.button("Tilføj", use_container_width=True) and new_ticker:
-        if new_ticker not in portfolio_set:
-            buy_price = custom_price if custom_price > 0 else _get_buy_price(new_ticker)
-            portfolio.append(
-                {
-                    "ticker": new_ticker,
-                    "buy_date": str(date.today()),
-                    "buy_price": round(buy_price, 4) if buy_price else None,
-                    "shares": round(custom_shares, 4) if custom_shares > 0 else None,
-                }
-            )
-            _save_portfolio(portfolio)
-            price_str = f" (kurs: ${buy_price:.2f})" if buy_price else ""
-            st.success(f"{new_ticker} tilføjet{price_str}")
-            st.rerun()
+        buy_price = custom_price if custom_price > 0 else _get_buy_price(new_ticker)
+        portfolio.append(
+            {
+                "buy_id": str(uuid.uuid4())[:8],  # unikt ID pr. køb
+                "ticker": new_ticker,
+                "buy_date": str(date.today()),
+                "buy_price": round(buy_price, 4) if buy_price else None,
+                "shares": round(custom_shares, 4) if custom_shares > 0 else None,
+            }
+        )
+        _save_portfolio(portfolio)
+        price_str = f" (kurs: ${buy_price:.2f})" if buy_price else ""
+        st.success(f"{new_ticker} tilføjet{price_str}")
+        st.rerun()
 
     if portfolio:
-        st.write("**Fjern aktie:**")
+        st.write("**Fjern køb:**")
         btn_cols = st.columns(5)
-        for i, pos in enumerate(sorted(portfolio, key=lambda p: p["ticker"])):
+        for i, pos in enumerate(
+            sorted(portfolio, key=lambda p: (p["ticker"], p.get("buy_date", "")))
+        ):
             ticker = pos["ticker"]
+            buy_id = pos.get("buy_id", "")
+            shares_str = f" ×{int(pos['shares'])}" if pos.get("shares") else ""
+            label = f"🗑 {ticker}{shares_str}"
             if btn_cols[i % 5].button(
-                f"🗑 {ticker}", key=f"del_{ticker}", use_container_width=True
+                label, key=f"del_{buy_id or i}", use_container_width=True
             ):
-                portfolio = [p for p in portfolio if p["ticker"] != ticker]
+                if buy_id:
+                    portfolio = [p for p in portfolio if p.get("buy_id") != buy_id]
+                else:
+                    # Bagudkompatibelt: slet første match på ticker
+                    idx = next(
+                        (j for j, p in enumerate(portfolio) if p["ticker"] == ticker),
+                        None,
+                    )
+                    if idx is not None:
+                        portfolio.pop(idx)
                 _save_portfolio(portfolio)
                 st.rerun()
 
