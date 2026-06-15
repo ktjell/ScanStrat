@@ -548,69 +548,142 @@ st.divider()
 # ------------------------------------------------------------------
 # Paper Portfolio P&L
 # ------------------------------------------------------------------
-st.subheader("📈 Paper Portfolio P&L")
-st.caption("Simuleret equal-weight portefølje der følger top-15 listen automatisk")
+col_pnl_hdr, col_pnl_reset = st.columns([6, 1])
+col_pnl_hdr.subheader("📈 Paper Portfolio P&L")
 
 _paper = _load_paper_trades()
 _paper_positions = _paper.get("positions", {})
 _closed_trades = _paper.get("closed_trades", [])
 _equity_history = _paper.get("equity_history", [])
+_started_at = _paper.get("started_at")
+
+# Nulstil-knap
+if _paper_positions or _closed_trades:
+    if col_pnl_reset.button("🗑️ Nulstil", help="Slet alle paper trades og start forfra"):
+        _PAPER_FILE.write_text(
+            json.dumps(
+                {
+                    "positions": {},
+                    "closed_trades": [],
+                    "equity_history": [],
+                    "portfolio_value": 10_000.0,
+                    "started_at": str(date.today()),
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        st.success("Paper trades nulstillet.")
+        st.rerun()
+
+if _started_at:
+    st.caption(
+        f"Simuleret equal-weight portefølje der følger top-15 listen automatisk · Startdato: **{_started_at}**"
+    )
+else:
+    st.caption("Simuleret equal-weight portefølje der følger top-15 listen automatisk")
 
 if not _paper_positions and not _closed_trades:
     st.info(
         "Paper trading starter automatisk næste gang scorer.py kører (kl. 8, 12, 18 eller 22). Kør manuelt for at starte nu: `python live/scorer.py`"
     )
 else:
-    # Åbne positioner med live P&L
-    if _paper_positions:
-        top15_tickers_paper = tuple(s["ticker"] for s in top_stocks[:15])
-        _paper_prices = _fetch_prices(top15_tickers_paper)
+    # --- Kumulativt afkast (realiseret) ---
+    _initial_value = 10_000.0
+    _portfolio_value: float = _paper.get("portfolio_value", _initial_value)
+    _total_ret_pct = (_portfolio_value / _initial_value - 1) * 100
 
-        open_rows = []
-        open_returns = []
-        for ticker, pos in sorted(_paper_positions.items()):
-            entry_price = pos.get("entry_price")
-            current_price = _paper_prices.get(ticker)
-            if entry_price and current_price:
-                ret_pct = (current_price / entry_price - 1) * 100
-                open_returns.append(ret_pct)
-                arrow = "🟢" if ret_pct >= 0 else "🔴"
-                ret_str = f"{arrow} {ret_pct:+.1f}%"
-            else:
-                ret_str = "—"
-                ret_pct = None
-            open_rows.append(
-                {
-                    "Aktie": ticker,
-                    "Debut": pos.get("entry_date", "?"),
-                    "Købt @": f"${entry_price:.2f}" if entry_price else "—",
-                    "Kurs nu": f"${current_price:.2f}" if current_price else "—",
-                    "Afkast": ret_str,
-                }
+    # Åbne positioners urealiserede afkast oven i det realiserede
+    top15_tickers_paper = tuple(s["ticker"] for s in top_stocks[:15])
+    _paper_prices = _fetch_prices(top15_tickers_paper)
+
+    open_returns = []
+    open_rows = []
+    for ticker, pos in sorted(_paper_positions.items()):
+        entry_price = pos.get("entry_price")
+        current_price = _paper_prices.get(ticker)
+        if entry_price and current_price:
+            ret_pct = (current_price / entry_price - 1) * 100
+            open_returns.append(ret_pct)
+            arrow = "🟢" if ret_pct >= 0 else "🔴"
+            ret_str = f"{arrow} {ret_pct:+.1f}%"
+        else:
+            ret_str = "—"
+        open_rows.append(
+            {
+                "Aktie": ticker,
+                "Debut": pos.get("entry_date", "?"),
+                "Købt @": f"${entry_price:.2f}" if entry_price else "—",
+                "Kurs nu": f"${current_price:.2f}" if current_price else "—",
+                "Afkast": ret_str,
+            }
+        )
+
+    # Uberegnet urealiseret afkast: gæt på hvad portef. er værd inkl. åbne
+    n_slots = 15
+    unrealised_contribution = 0.0
+    if open_returns:
+        unrealised_contribution = sum(open_returns) / 100 / n_slots * _portfolio_value
+    total_value_incl_open = _portfolio_value + unrealised_contribution
+    total_ret_incl_open = (total_value_incl_open / _initial_value - 1) * 100
+
+    # Metrics
+    _closed_returns = [
+        t["return_pct"] for t in _closed_trades if t.get("return_pct") is not None
+    ]
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric(
+        "Total afkast (realiseret)",
+        f"{_total_ret_pct:+.1f}%",
+        help="Kumulativt afkast fra lukkede handler siden start",
+    )
+    c2.metric(
+        "Inkl. åbne positioner",
+        f"{total_ret_incl_open:+.1f}%",
+        help="Realiseret + urealiseret afkast på åbne positioner",
+    )
+    c3.metric("Åbne positioner", len(_paper_positions))
+    if _closed_returns:
+        wins = sum(1 for r in _closed_returns if r > 0)
+        c4.metric(
+            "Win rate (lukkede)",
+            f"{wins / len(_closed_returns) * 100:.0f}%",
+            f"{len(_closed_returns)} handler",
+        )
+
+    # Equity kurve
+    if _equity_history:
+        eq_df = pd.DataFrame(_equity_history)
+        if (
+            "portfolio_value" in eq_df.columns
+            and eq_df["portfolio_value"].notna().any()
+        ):
+            eq_df["date"] = pd.to_datetime(eq_df["date"])
+            eq_df = eq_df.sort_values("date").drop_duplicates("date")
+            eq_df["Afkast %"] = (eq_df["portfolio_value"] / _initial_value - 1) * 100
+            st.line_chart(eq_df.set_index("date")[["Afkast %"]], height=180)
+        else:
+            st.caption("_Equity kurve vises når der er realiserede handler._")
+
+    # Åbne positioner
+    if open_rows:
+        with st.expander(f"📂 Åbne positioner ({len(open_rows)})", expanded=True):
+            if open_returns:
+                avg_open = sum(open_returns) / len(open_returns)
+                best, worst = max(open_returns), min(open_returns)
+                st.caption(
+                    f"Snit: {avg_open:+.1f}% | Bedst: {best:+.1f}% | Dårligst: {worst:+.1f}%"
+                )
+            st.dataframe(
+                pd.DataFrame(open_rows), use_container_width=True, hide_index=True
             )
-
-        # Samlet P&L for åbne positioner
-        if open_returns:
-            avg_open = sum(open_returns) / len(open_returns)
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Åbne positioner", len(open_returns))
-            c2.metric("Snit afkast (åbne)", f"{avg_open:+.1f}%")
-            best = max(open_returns)
-            worst = min(open_returns)
-            c3.metric("Bedst / Dårligst", f"{best:+.1f}% / {worst:+.1f}%")
-
-        st.dataframe(pd.DataFrame(open_rows), use_container_width=True, hide_index=True)
 
     # Lukkede handler
     if _closed_trades:
-        closed_returns = [
-            t["return_pct"] for t in _closed_trades if t.get("return_pct") is not None
-        ]
-        if closed_returns:
-            avg_closed = sum(closed_returns) / len(closed_returns)
-            wins = sum(1 for r in closed_returns if r > 0)
+        if _closed_returns:
+            avg_closed = sum(_closed_returns) / len(_closed_returns)
             st.caption(
-                f"**Lukkede handler:** {len(closed_returns)} | Snit: {avg_closed:+.1f}% | Win rate: {wins}/{len(closed_returns)} ({wins / len(closed_returns) * 100:.0f}%)"
+                f"**Lukkede handler:** {len(_closed_returns)} | Snit: {avg_closed:+.1f}%"
             )
 
         with st.expander(f"📋 Historik ({len(_closed_trades)} lukkede handler)"):

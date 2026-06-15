@@ -60,14 +60,31 @@ RETRAIN_DAYS = 28  # retrain model hver 28 dage
 # ------------------------------------------------------------------
 
 
+INITIAL_PORTFOLIO_VALUE = 10_000.0  # start-kapital for paper portfolio
+
+
 def _load_paper_trades() -> dict:
     """Hent paper trade tilstand fra disk."""
     if not PAPER_FILE.exists():
-        return {"positions": {}, "closed_trades": [], "equity_history": []}
+        return {
+            "positions": {},
+            "closed_trades": [],
+            "equity_history": [],
+            "portfolio_value": INITIAL_PORTFOLIO_VALUE,
+        }
     try:
-        return json.loads(PAPER_FILE.read_text(encoding="utf-8"))
+        pt = json.loads(PAPER_FILE.read_text(encoding="utf-8"))
+        # Bagudkompatibelt: tilføj portfolio_value hvis den mangler
+        if "portfolio_value" not in pt:
+            pt["portfolio_value"] = INITIAL_PORTFOLIO_VALUE
+        return pt
     except Exception:
-        return {"positions": {}, "closed_trades": [], "equity_history": []}
+        return {
+            "positions": {},
+            "closed_trades": [],
+            "equity_history": [],
+            "portfolio_value": INITIAL_PORTFOLIO_VALUE,
+        }
 
 
 def _save_paper_trades(pt: dict) -> None:
@@ -108,6 +125,9 @@ def _update_paper_trades(new_top15: list[str]) -> None:
     """
     pt = _load_paper_trades()
     today_str = str(date.today())
+    # Sæt startdato første gang
+    if not pt.get("started_at"):
+        pt["started_at"] = today_str
     positions = pt["positions"]
 
     exiting = [t for t in positions if t not in new_top15]
@@ -116,12 +136,18 @@ def _update_paper_trades(new_top15: list[str]) -> None:
     all_needed = list(set(new_top15) | set(exiting))
     prices = _get_current_prices(all_needed)
 
-    # Luk udgående positioner
+    # Luk udgående positioner og opdater portfolio_value
+    # Equal-weight: hver position udgør 1/TOP_N af porteføljen
+    n_slots = len(new_top15) or 15
+    portfolio_value: float = pt.get("portfolio_value", INITIAL_PORTFOLIO_VALUE)
+
     for ticker in exiting:
         entry = positions[ticker]
         exit_price = prices.get(ticker)
         if exit_price and entry.get("entry_price"):
             ret_pct = round((exit_price / entry["entry_price"] - 1) * 100, 2)
+            # Opdater portfolio_value: den lukkede position bidrog med 1/n_slots
+            portfolio_value *= 1 + ret_pct / 100 / n_slots
         else:
             ret_pct = None
         pt["closed_trades"].append(
@@ -145,27 +171,36 @@ def _update_paper_trades(new_top15: list[str]) -> None:
         positions[ticker] = {"entry_date": today_str, "entry_price": entry_price}
         logger.info("Paper KØB %s @ %.2f", ticker, entry_price or 0)
 
-    # Equity snapshot (gennemsnit af åbne positioners afkast)
-    returns = []
+    # Equity snapshot: realiseret + urealiseret (åbne positioners afkast siden debut)
+    open_returns = []
     for ticker, pos in positions.items():
         p = prices.get(ticker)
         if p and pos.get("entry_price"):
-            returns.append((p / pos["entry_price"] - 1) * 100)
-    avg_ret = round(sum(returns) / len(returns), 2) if returns else 0.0
+            open_returns.append((p / pos["entry_price"] - 1) * 100)
+    avg_open_ret = (
+        round(sum(open_returns) / len(open_returns), 2) if open_returns else 0.0
+    )
 
+    # Beregn total_return_pct baseret på kumulativ portfolio_value
+    total_ret_pct = round((portfolio_value / INITIAL_PORTFOLIO_VALUE - 1) * 100, 2)
+
+    pt["portfolio_value"] = round(portfolio_value, 4)
     pt["equity_history"].append(
         {
             "date": today_str,
             "open_positions": len(positions),
-            "avg_return_pct": avg_ret,
+            "avg_open_return_pct": avg_open_ret,
+            "portfolio_value": round(portfolio_value, 2),
+            "total_return_pct": total_ret_pct,
         }
     )
     pt["positions"] = positions
     _save_paper_trades(pt)
     logger.info(
-        "Paper trades opdateret: %d åbne, %d lukkede",
+        "Paper trades opdateret: %d åbne, %d lukkede, total afkast %.1f%%",
         len(positions),
         len(pt["closed_trades"]),
+        total_ret_pct,
     )
 
 
