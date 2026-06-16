@@ -38,6 +38,20 @@ from xgboost import XGBClassifier
 
 logger = logging.getLogger(__name__)
 
+
+def _uniform_dt_index(idx: pd.DatetimeIndex) -> pd.DatetimeIndex:
+    """Konverter DatetimeIndex til tz-naive datetime64 med ensartet precision.
+
+    Pandas 2.x læser parquet som datetime64[us], mens yfinance giver datetime64[ns].
+    reindex() fejler stille ved precision-mismatch — dette sikrer at begge sider
+    bruger samme enhed saa ffill-baseret reindex virker korrekt.
+    """
+    if hasattr(idx, "as_unit"):
+        # pandas >= 2.0: konverter eksplicit til microseconds (parquet-standard)
+        return idx.as_unit("us")
+    return idx  # pandas < 2.0: allerede ns, parquet giver også ns
+
+
 # ------------------------------------------------------------------
 # Parametre
 # ------------------------------------------------------------------
@@ -235,6 +249,7 @@ class MLRankerStrategy:
             spy_fwd = pd.Series(dtype=float)
         else:
             spy_close = spy_df["close"].sort_index()
+            # Strip timezone + normaliser til midnat
             spy_close.index = pd.to_datetime(spy_close.index).normalize()
             if spy_close.index.tz is not None:
                 spy_close.index = spy_close.index.tz_localize(None)
@@ -242,6 +257,13 @@ class MLRankerStrategy:
             spy_fwd = spy_close.pct_change(5, fill_method=None).shift(
                 -5
             )  # SPY's naeste-uges afkast
+            # Normaliser precision: yfinance giver datetime64[ns], parquet giver
+            # datetime64[us] i pandas 2.x — reindex() fejler ved mismatch
+            spy_features.index = _uniform_dt_index(spy_features.index)
+            if not spy_fwd.empty:
+                spy_fwd.index = _uniform_dt_index(spy_fwd.index)
+            # Ffill/bfill saa rolling-edges ikke giver NaN ved reindex
+            spy_features = spy_features.ffill().bfill()
 
         # --- Breadth features: pct over SMA50 og i golden cross ---
         # Vigtigt: brug NaN hvor SMA endnu ikke er beregneligt (for lidt historik).
@@ -283,7 +305,7 @@ class MLRankerStrategy:
             if "close" not in df.columns or df.empty:
                 continue
             close = df["close"].dropna()
-            close.index = pd.to_datetime(close.index).normalize()
+            close.index = _uniform_dt_index(pd.to_datetime(close.index).normalize())
             if len(close) < 210:  # minimum for SMA200 + lidt buffer
                 continue
 
