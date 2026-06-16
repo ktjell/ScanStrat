@@ -233,19 +233,29 @@ with col_run:
     ):
         try:
             scorer_path = _ROOT / "live" / "scorer.py"
-            # Brug venv-python direkte — uv er ikke i PATH under launchctl
+            log_path = _ROOT / "live" / "data" / "scorer_manual.log"
             import sys as _sys
 
             python = _sys.executable
-            subprocess.Popen(
+            log_file = open(log_path, "w", encoding="utf-8")
+            proc = subprocess.Popen(
                 [python, str(scorer_path)],
                 cwd=str(_ROOT),
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
             )
-            st.toast("Scorer startet — opdatering klar om ~2 min ⏳")
+            st.toast(f"Scorer startet (PID {proc.pid}) — klar om ~2 min ⏳")
+            st.session_state["scorer_log_path"] = str(log_path)
         except Exception as e:
             st.error(f"Kunne ikke starte scorer: {e}")
+
+# Vis scorer-log hvis tilgængelig
+_scorer_log = _ROOT / "live" / "data" / "scorer_manual.log"
+if _scorer_log.exists():
+    log_text = _scorer_log.read_text(encoding="utf-8", errors="replace").strip()
+    if log_text:
+        with st.expander("📋 Scorer log (seneste kørsel)", expanded=False):
+            st.code(log_text[-3000:], language=None)  # vis de sidste 3000 tegn
 
 st.caption(f"Model traenet: {_age_str(model_trained)}")
 st.divider()
