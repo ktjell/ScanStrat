@@ -2,18 +2,9 @@ from __future__ import annotations
 
 import logging
 from datetime import date
-from pathlib import Path
 
 import pandas as pd
 import yfinance as yf
-
-# Brug en projekt-lokal mappe til yfinance's timezone-cache i stedet for den
-# globale ~/.cache/py-yfinance som korrupterer ved samtidige skrivninger.
-# Den lokale mappe overlever mellem kørsler (så tz kun slås op én gang per ticker)
-# men er isoleret fra andre processer.
-_YF_TZ_CACHE = Path(__file__).parent.parent.parent / "data" / "cache" / ".yf_tz"
-_YF_TZ_CACHE.mkdir(parents=True, exist_ok=True)
-yf.set_tz_cache_location(str(_YF_TZ_CACHE))  # type: ignore[attr-defined]
 
 from data.models.price_data import validate_price_df
 
@@ -57,6 +48,7 @@ class YFinanceLoader:
             auto_adjust=True,
             progress=False,
             timeout=self._timeout,
+            threads=False,  # Undgår parallelle SQLite-skrivninger
         )
         if raw.empty:
             raise ValueError(f"No data returned for ticker '{ticker}'")
@@ -86,6 +78,7 @@ class YFinanceLoader:
             progress=False,
             timeout=self._timeout,
             group_by="ticker",
+            threads=False,  # Undgår parallelle SQLite-skrivninger til tz-cache
         )
 
         # Single-ticker download returns a flat DataFrame

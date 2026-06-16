@@ -26,13 +26,6 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 
-# Brug en projekt-lokal mappe til yfinance's tz-cache.
-# Overlever mellem kørsler (tz kun slås op én gang per ticker) og er isoleret
-# fra ~/.cache/py-yfinance som korrupterer ved samtidige skrivninger.
-_YF_TZ_CACHE = Path(__file__).parent.parent / "data" / "cache" / ".yf_tz"
-_YF_TZ_CACHE.mkdir(parents=True, exist_ok=True)
-yf.set_tz_cache_location(str(_YF_TZ_CACHE))  # type: ignore[attr-defined]
-
 _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
 sys.path.insert(0, str(_ROOT / "research"))
