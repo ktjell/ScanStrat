@@ -168,11 +168,14 @@ class MLRankerStrategy:
     def _compute_spy_features(self, spy_close: pd.Series) -> pd.DataFrame:
         """Beregn markedsbredte features ud fra SPY."""
         spy_close = spy_close.sort_index()
+        # Sikr tz-naive index saa reindex() matcher ticker-data fra parquet cache
+        if spy_close.index.tz is not None:
+            spy_close.index = spy_close.index.tz_localize(None)
         sma50 = spy_close.rolling(50).mean()
         sma200 = spy_close.rolling(200).mean()
         return pd.DataFrame(
             {
-                "spy_ret_4w": spy_close.pct_change(20),
+                "spy_ret_4w": spy_close.pct_change(20, fill_method=None),
                 "spy_rsi_14": self._rsi(spy_close, 14),
                 "spy_sma_ratio": sma50 / sma200 - 1,
                 "is_bull": (spy_close >= sma200).astype(int),
@@ -233,8 +236,12 @@ class MLRankerStrategy:
         else:
             spy_close = spy_df["close"].sort_index()
             spy_close.index = pd.to_datetime(spy_close.index).normalize()
+            if spy_close.index.tz is not None:
+                spy_close.index = spy_close.index.tz_localize(None)
             spy_features = self._compute_spy_features(spy_close)
-            spy_fwd = spy_close.pct_change(5).shift(-5)  # SPY's naeste-uges afkast
+            spy_fwd = spy_close.pct_change(5, fill_method=None).shift(
+                -5
+            )  # SPY's naeste-uges afkast
 
         # --- Breadth features: pct over SMA50 og i golden cross ---
         # Vigtigt: brug NaN hvor SMA endnu ikke er beregneligt (for lidt historik).
