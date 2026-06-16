@@ -116,12 +116,17 @@ def _get_current_prices(tickers: list[str]) -> dict[str, float]:
         return {}
 
 
-def _update_paper_trades(new_top15: list[str]) -> None:
+def _update_paper_trades(
+    new_top15: list[str],
+    data: dict[str, "pd.DataFrame"] | None = None,
+) -> None:
     """
     Opdater paper trade journal baseret på ny top-15 liste.
     - Nye tickers: åbn position til dagskurs
     - Udgåede tickers: luk position til dagskurs
     - Log equity snapshot
+    Hvis en holdt ticker har forældet data (yfinance-fejl), bevares positionen
+    i stedet for at sælge blindt baseret på stale features.
     """
     pt = _load_paper_trades()
     today_str = str(date.today())
@@ -130,7 +135,27 @@ def _update_paper_trades(new_top15: list[str]) -> None:
         pt["started_at"] = today_str
     positions = pt["positions"]
 
-    exiting = [t for t in positions if t not in new_top15]
+    # Find tickers med forældet data: data mangler eller sidst opdateret > 3 dage siden
+    # (3 dage dækker weekend + evt. fejldag)
+    stale_cutoff = date.today() - timedelta(days=3)
+    stale_tickers: set[str] = set()
+    if data is not None:
+        for ticker in list(positions.keys()):
+            df = data.get(ticker)
+            if df is None or df.empty:
+                stale_tickers.add(ticker)
+            else:
+                last_date = pd.to_datetime(df.index).max().date()
+                if last_date < stale_cutoff:
+                    stale_tickers.add(ticker)
+    if stale_tickers:
+        logger.warning(
+            "Forældet data for %d holdte positioner — bevares (sælges ikke): %s",
+            len(stale_tickers),
+            sorted(stale_tickers),
+        )
+
+    exiting = [t for t in positions if t not in new_top15 and t not in stale_tickers]
     entering = [t for t in new_top15 if t not in positions]
 
     all_needed = list(set(new_top15) | set(exiting))
@@ -175,8 +200,13 @@ def _update_paper_trades(new_top15: list[str]) -> None:
     # Åbn nye positioner
     for ticker in entering:
         entry_price = prices.get(ticker)
+        if not entry_price:
+            logger.warning(
+                "Paper %s: ingen indgangspris — position springes over", ticker
+            )
+            continue
         positions[ticker] = {"entry_date": today_str, "entry_price": entry_price}
-        logger.info("Paper KØB %s @ %.2f", ticker, entry_price or 0)
+        logger.info("Paper KØB %s @ %.2f", ticker, entry_price)
 
     # Equity snapshot: realiseret + urealiseret (åbne positioners afkast siden debut)
     open_returns = []
@@ -411,7 +441,7 @@ def main() -> None:
 
     # Opdater paper trades (køb/sælg baseret på ny top-15)
     new_top15 = [r["ticker"] for r in output["top_stocks"][:15]]
-    _update_paper_trades(new_top15)
+    _update_paper_trades(new_top15, data=data)
 
 
 if __name__ == "__main__":
