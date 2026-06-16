@@ -326,8 +326,44 @@ def main() -> None:
     # Hent ranking
     ranked = strat.rank(data, as_of=today)
 
+    # Hent ranking
+    ranked = strat.rank(data, as_of=today)
+
     if ranked.empty:
-        logger.error("Ingen ranking output — tjek data")
+        # Diagnostik: find ud af præcis hvad der fejler
+        fs = strat._feature_store
+        if fs is None or fs.empty:
+            logger.error(
+                "Ingen ranking output — feature_store er tom (ingen tickers med nok historik?)"
+            )
+        else:
+            dates = fs.index.get_level_values("date")
+            ts = pd.Timestamp(today)
+            valid_dates = dates[dates <= ts]
+            logger.error(
+                "Ingen ranking output — feature_store har %d rækker, "
+                "seneste dato i store: %s, as_of: %s, model: %s",
+                len(fs),
+                valid_dates.max() if not valid_dates.empty else "INGEN",
+                today,
+                "OK" if strat._model is not None else "MANGLER",
+            )
+            if not valid_dates.empty:
+                snap_date = valid_dates.max()
+                try:
+                    snap = fs.xs(snap_date, level="date")
+                    nan_cols = snap.isnull().any()
+                    logger.error(
+                        "Snap ved %s: %d tickers, %d kolonner med NaN: %s",
+                        snap_date.date(),
+                        len(snap),
+                        nan_cols.sum(),
+                        list(nan_cols[nan_cols].index),
+                    )
+                    snap_clean = snap.dropna()
+                    logger.error("Snap efter dropna: %d tickers", len(snap_clean))
+                except Exception as e:
+                    logger.error("Fejl ved snap-hentning: %s", e)
         return
 
     # Gem forrige top-15 inden vi overskriver (bruges af dashboard til at vise NY/SOLGT)
