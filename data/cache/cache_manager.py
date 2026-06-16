@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -13,8 +13,22 @@ logger = logging.getLogger(__name__)
 
 
 def _last_trading_day() -> date:
-    """Seneste handelsdato (fredag hvis vi er i weekend)."""
+    """
+    Seneste AFSLUTTEDE handelsdato.
+
+    US-markedet lukker kl. 22:00 CET (16:00 ET). Hvis det er inden
+    lukketid i dag, er gårsdagens (eller fredagens) data den seneste
+    komplette dag — ellers ville vi forsøge at opdatere til i dag og
+    yfinance ville fejle med 'possibly delisted'.
+    """
+    # US market close = 22:00 CET = 20:00 UTC
+    now_utc = datetime.now(tz=timezone.utc)
+    us_close_utc = now_utc.replace(hour=20, minute=30, second=0, microsecond=0)
+
     d = date.today()
+    # Hvis markedet ikke er lukket endnu i dag, gå en dag tilbage
+    if now_utc < us_close_utc:
+        d -= timedelta(days=1)
     # Gå tilbage til fredag hvis lørdag/søndag
     while d.weekday() >= 5:
         d -= timedelta(days=1)
