@@ -22,14 +22,16 @@ import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-import tempfile
-
 import numpy as np
 import pandas as pd
 import yfinance as yf
 
-# Brug en per-kørsel temp-mappe til yfinance's tz-cache (undgår SQLite-korruption)
-yf.set_tz_cache_location(tempfile.mkdtemp(prefix="yf_tz_"))  # type: ignore[attr-defined]
+# Brug en projekt-lokal mappe til yfinance's tz-cache.
+# Overlever mellem kørsler (tz kun slås op én gang per ticker) og er isoleret
+# fra ~/.cache/py-yfinance som korrupterer ved samtidige skrivninger.
+_YF_TZ_CACHE = Path(__file__).parent.parent / "data" / "cache" / ".yf_tz"
+_YF_TZ_CACHE.mkdir(parents=True, exist_ok=True)
+yf.set_tz_cache_location(str(_YF_TZ_CACHE))  # type: ignore[attr-defined]
 
 _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))

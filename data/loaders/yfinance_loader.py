@@ -2,16 +2,18 @@ from __future__ import annotations
 
 import logging
 from datetime import date
-
-import tempfile
+from pathlib import Path
 
 import pandas as pd
 import yfinance as yf
 
-# Brug en per-import temp-mappe til yfinance's timezone-cache.
-# Standardplaceringen (~/.cache/py-yfinance) korrupterer ved samtidige skrivninger
-# (600 tickers i batch). En isoleret temp-mappe eliminerer konflikten.
-yf.set_tz_cache_location(tempfile.mkdtemp(prefix="yf_tz_"))  # type: ignore[attr-defined]
+# Brug en projekt-lokal mappe til yfinance's timezone-cache i stedet for den
+# globale ~/.cache/py-yfinance som korrupterer ved samtidige skrivninger.
+# Den lokale mappe overlever mellem kørsler (så tz kun slås op én gang per ticker)
+# men er isoleret fra andre processer.
+_YF_TZ_CACHE = Path(__file__).parent.parent.parent / "data" / "cache" / ".yf_tz"
+_YF_TZ_CACHE.mkdir(parents=True, exist_ok=True)
+yf.set_tz_cache_location(str(_YF_TZ_CACHE))  # type: ignore[attr-defined]
 
 from data.models.price_data import validate_price_df
 
