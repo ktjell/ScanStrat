@@ -26,6 +26,9 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 
+# Deaktiver yfinance's interne SQLite-cache for at undgå korruption ved parallelle kald
+yf.set_tz_cache_location(None)  # type: ignore[attr-defined]
+
 _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
 sys.path.insert(0, str(_ROOT / "research"))

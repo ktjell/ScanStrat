@@ -6,6 +6,10 @@ from datetime import date
 import pandas as pd
 import yfinance as yf
 
+# Deaktiver yfinance's interne SQLite-cache — vi bruger vores eget parquet-cache.
+# yfinance's SQLite korrupterer ved samtidige skrivninger (batch-download af 600 tickers).
+yf.set_tz_cache_location(None)  # type: ignore[attr-defined]
+
 from data.models.price_data import validate_price_df
 
 logger = logging.getLogger(__name__)

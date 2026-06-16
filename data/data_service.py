@@ -121,8 +121,28 @@ class DataService:
             fetched = self._loader.fetch_batch(to_fetch_full, start, end)
             failed = [t for t in to_fetch_full if t not in fetched]
             if failed:
-                logger.info("Marking %d ticker(s) as bad: %s", len(failed), failed[:10])
-                self._bad.mark_bad_batch(failed)
+                # Prøv at bruge eksisterende cache-data som fallback inden vi opgiver
+                truly_bad: list[str] = []
+                for ticker in failed:
+                    try:
+                        df = self._cache.load(ticker)
+                        if not df.empty:
+                            cached[ticker] = df.loc[str(start) : str(end)]
+                            logger.debug(
+                                "Cache-fallback for '%s' (fetch fejlede, bruger eksisterende data)",
+                                ticker,
+                            )
+                        else:
+                            truly_bad.append(ticker)
+                    except Exception:
+                        truly_bad.append(ticker)
+                if truly_bad:
+                    logger.info(
+                        "Marking %d ticker(s) as bad (ingen cache-fallback): %s",
+                        len(truly_bad),
+                        truly_bad[:10],
+                    )
+                    self._bad.mark_bad_batch(truly_bad)
             for ticker, df in fetched.items():
                 self._cache.save(ticker, df)
                 cached[ticker] = df.loc[str(start) : str(end)]
