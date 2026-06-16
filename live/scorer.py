@@ -22,12 +22,14 @@ import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+import tempfile
+
 import numpy as np
 import pandas as pd
 import yfinance as yf
 
-# Deaktiver yfinance's interne SQLite-cache for at undgå korruption ved parallelle kald
-yf.set_tz_cache_location(None)  # type: ignore[attr-defined]
+# Brug en per-kørsel temp-mappe til yfinance's tz-cache (undgår SQLite-korruption)
+yf.set_tz_cache_location(tempfile.mkdtemp(prefix="yf_tz_"))  # type: ignore[attr-defined]
 
 _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
@@ -324,18 +326,17 @@ def main() -> None:
         )
         return
 
-    # Tilfoej SPY til data-dict hvis ikke allerede der
+    # Tilføj SPY via DataService (parquet-cache + yfinance fallback)
     if "SPY" not in data:
         logger.info("Henter SPY...")
-        start = date.today() - timedelta(days=400)
-        spy_raw = yf.download(
-            "SPY", start=str(start), end=str(today), auto_adjust=True, progress=False
-        )
-        if not spy_raw.empty:
-            df = spy_raw[["Open", "High", "Low", "Close", "Volume"]].copy()
-            df.columns = ["open", "high", "low", "close", "volume"]
-            df.index = pd.to_datetime(df.index)
-            data["SPY"] = df
+        spy_data = _fetch_data(["SPY"], lookback_days=400)
+        if "SPY" in spy_data:
+            data["SPY"] = spy_data["SPY"]
+        else:
+            logger.error(
+                "SPY data ikke tilgængeligt — afbryder (model mangler features)"
+            )
+            return
 
     # Load eller opret strategi
     strat = _load_model()
