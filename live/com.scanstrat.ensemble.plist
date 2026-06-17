@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+macOS launchd job: kører ensemble_scorer.py kl. 8, 12, 18 og 22 på hverdage.
+
+INSTALLATION (Terminal på Mac):
+  1. Kopier filen til ~/Library/LaunchAgents/:
+       cp live/com.scanstrat.ensemble.plist ~/Library/LaunchAgents/
+  2. Load job'et:
+       launchctl load ~/Library/LaunchAgents/com.scanstrat.ensemble.plist
+  3. Test at det virker med det samme:
+       launchctl start com.scanstrat.ensemble
+
+Output-logs findes i:
+  ~/Library/Logs/ScanStrat/ensemble.log
+  ~/Library/Logs/ScanStrat/ensemble_error.log
+-->
+<plist version="1.0">
+<dict>
+
+    <key>Label</key>
+    <string>com.scanstrat.ensemble</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/katrine/Desktop/Projects/ScanStrat/.venv/bin/python</string>
+        <string>/Users/katrine/Desktop/Projects/ScanStrat/live/ensemble_scorer.py</string>
+    </array>
+
+    <!-- Arbejdsmappe -->
+    <key>WorkingDirectory</key>
+    <string>/Users/katrine/Desktop/Projects/ScanStrat</string>
+
+    <!-- Kør kl. 8, 12, 18 og 22 (samme tider som scorer.py) -->
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict>
+            <key>Hour</key><integer>8</integer>
+            <key>Minute</key><integer>5</integer>
+        </dict>
+        <dict>
+            <key>Hour</key><integer>12</integer>
+            <key>Minute</key><integer>5</integer>
+        </dict>
+        <dict>
+            <key>Hour</key><integer>18</integer>
+            <key>Minute</key><integer>5</integer>
+        </dict>
+        <dict>
+            <key>Hour</key><integer>22</integer>
+            <key>Minute</key><integer>5</integer>
+        </dict>
+    </array>
+
+    <!-- Gem logs -->
+    <key>StandardOutPath</key>
+    <string>/Users/katrine/Library/Logs/ScanStrat/ensemble.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/katrine/Library/Logs/ScanStrat/ensemble_error.log</string>
+
+    <!-- Start ikke hvis Mac sover — kør næste planlagte tidspunkt i stedet -->
+    <key>RunAtLoad</key>
+    <false/>
+
+</dict>
+</plist>

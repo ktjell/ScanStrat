@@ -27,9 +27,9 @@ INSTALLATION (Terminal på Mac):
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/katrine/opt/anaconda3/envs/scanstrat_clean/bin/streamlit</string>
+        <string>/Users/katrine/Desktop/Projects/ScanStrat/.venv/bin/streamlit</string>
         <string>run</string>
-        <string>/Users/katrine/Desktop/ScanStrat/ScanStrat/app.py</string>
+        <string>/Users/katrine/Desktop/Projects/ScanStrat/app.py</string>
         <string>--server.address</string>
         <string>0.0.0.0</string>
         <string>--server.port</string>
@@ -39,7 +39,7 @@ INSTALLATION (Terminal på Mac):
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/katrine/Desktop/ScanStrat/ScanStrat</string>
+    <string>/Users/katrine/Desktop/Projects/ScanStrat</string>
 
     <!-- Start ved login og genstart automatisk hvis det crasher -->
     <key>RunAtLoad</key>
@@ -48,9 +48,9 @@ INSTALLATION (Terminal på Mac):
     <true/>
 
     <key>StandardOutPath</key>
-    <string>/Users/katrine/Library/Logs/scanstrat_dashboard.log</string>
+    <string>/Users/katrine/Library/Logs/ScanStrat/dashboard.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/katrine/Library/Logs/scanstrat_dashboard_error.log</string>
+    <string>/Users/katrine/Library/Logs/ScanStrat/dashboard_error.log</string>
 
 </dict>
 </plist>

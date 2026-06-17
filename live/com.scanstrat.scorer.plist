@@ -26,13 +26,13 @@ Output-logs findes i:
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/katrine/opt/anaconda3/envs/scanstrat_clean/bin/python</string>
-        <string>/Users/katrine/Desktop/ScanStrat/ScanStrat/live/scorer.py</string>
+        <string>/Users/katrine/Desktop/Projects/ScanStrat/.venv/bin/python</string>
+        <string>/Users/katrine/Desktop/Projects/ScanStrat/live/scorer.py</string>
     </array>
 
     <!-- Arbejdsmappe — skal matche ovenstående sti -->
     <key>WorkingDirectory</key>
-    <string>/Users/katrine/Desktop/ScanStrat/ScanStrat</string>
+    <string>/Users/katrine/Desktop/Projects/ScanStrat</string>
 
     <!-- Kør kl. 8, 12, 18 og 22 (kun hverdage håndteres af scorer.py selv) -->
     <key>StartCalendarInterval</key>
@@ -57,9 +57,9 @@ Output-logs findes i:
 
     <!-- Gem logs -->
     <key>StandardOutPath</key>
-    <string>/Users/DIT_BRUGERNAVN/Library/Logs/scanstrat_scorer.log</string>
+    <string>/Users/katrine/Library/Logs/ScanStrat/scorer.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/DIT_BRUGERNAVN/Library/Logs/scanstrat_scorer_error.log</string>
+    <string>/Users/katrine/Library/Logs/ScanStrat/scorer_error.log</string>
 
     <!-- Start ikke hvis Mac sover — kør næste planlagte tidspunkt i stedet -->
     <key>RunAtLoad</key>
